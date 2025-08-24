@@ -1,27 +1,34 @@
 <?php
-header('Content-Type: text/plain'); // กำหนด Content-Type เป็น plain text สำหรับการตอบกลับ
+header('Content-Type: text/plain'); // Set Content-Type to plain text for response
 session_start();
-include 'connect.php'; // เชื่อมต่อกับฐานข้อมูล PDO สำหรับ PostgreSQL
+include 'connect.php'; // Connect to PostgreSQL database using PDO
 
-// กำหนด Auth Token ของ Blynk ของคุณที่นี่
-// *** สำคัญ: ควรเก็บ Auth Token นี้ใน environment variable หรือไฟล์ config ที่ปลอดภัยกว่านี้ ***
-$blynkAuthToken = getenv('BLYNK_AUTH_TOKEN') ?: 'xeyFkCCbd3qwRgpnRtrWX_z16qx1uxm9'; 
+// Define the base IP address or a prefix for your ESP32 devices.
+// IMPORTANT: You should store the full IP address for each ESP32 in your database.
+// For demonstration, we'll assume a prefix and append the locker number,
+// or you can add a dedicated 'esp32_ip_address' column to your 'lockers' table.
+$esp32IpAddress = "192.168.1.100"; // <<< Change this to your actual ESP32's IP address, or retrieve from DB.
+                                 // Recommendation: Add 'esp32_ip_address' column to 'lockers' table.
 
-// ตรวจสอบว่ามีพารามิเตอร์ที่จำเป็นส่งมาหรือไม่
+// Check if necessary parameters are provided
 if (isset($_GET['locker_number']) && isset($_GET['user_email']) && isset($_GET['action'])) {
     $lockerNumber = $_GET['locker_number'];
     $userEmail = $_GET['user_email'];
-    $action = $_GET['action']; // 'open' หรือ 'close'
+    $action = $_GET['action']; // 'open' or 'close'
 
-    // ตรวจสอบสิทธิ์จาก Session
-    // ผู้ใช้ที่ล็อกอินอยู่ต้องเป็นคนเดียวกับผู้ใช้ที่พยายามควบคุมล็อกเกอร์
+    // Check session permissions
+    // The logged-in user must be the same user attempting to control the locker
     if (!isset($_SESSION['user_email']) || $_SESSION['user_email'] !== $userEmail) {
         echo "ERROR: Permission Denied. User session mismatch.";
         exit();
     }
 
     try {
-        // ป้องกัน SQL Injection โดยใช้ Prepared Statement เพื่อดึงข้อมูลล็อกเกอร์
+        // Prevent SQL Injection using Prepared Statement to retrieve locker data
+        // We now need 'blynk_virtual_pin' (which we will use as GPIO pin) and 'esp32_ip_address' if you add it.
+        // For this example, we're assuming 'blynk_virtual_pin' is the GPIO pin on ESP32.
+        // If you add 'esp32_ip_address' column, modify the SELECT query:
+        // $sql = "SELECT status, user_email, blynk_virtual_pin, esp32_ip_address FROM lockers WHERE locker_number = :locker_number";
         $sql = "SELECT status, user_email, blynk_virtual_pin FROM lockers WHERE locker_number = :locker_number";
         $stmt = $conn->prepare($sql);
         $stmt->bindParam(':locker_number', $lockerNumber);
@@ -31,50 +38,54 @@ if (isset($_GET['locker_number']) && isset($_GET['user_email']) && isset($_GET['
         if ($locker_data) {
             $status = $locker_data['status'];
             $bookedBy = $locker_data['user_email'];
-            $blynkVirtualPin = $locker_data['blynk_virtual_pin'];
+            $esp32GpioPin = $locker_data['blynk_virtual_pin']; // Using blynk_virtual_pin as the GPIO pin on ESP32
+            // If you added 'esp32_ip_address' column: $esp32IpAddress = $locker_data['esp32_ip_address'];
 
-            // ตรวจสอบเงื่อนไข: ล็อกเกอร์ต้องถูกจองโดยผู้ใช้คนนี้และอยู่ในสถานะ 'occupied'
+            // Check conditions: locker must be occupied by this user and in 'occupied' status
             if ($status == 'occupied' && $bookedBy == $userEmail) {
-                // กำหนดค่า Virtual Pin ที่จะส่งไปยัง Blynk
-                // 1 สำหรับเปิด, 0 สำหรับปิด
-                $blynkValue = ($action === 'open') ? 1 : 0;
-                $blynkUrl = "https://blynk.cloud/external/api/update?token={$blynkAuthToken}&v{$blynkVirtualPin}={$blynkValue}";
+                // Determine the value to send to ESP32 based on low-active relay logic
+                // 'open' means relay active (LOW = 0)
+                // 'close' means relay inactive (HIGH = 1)
+                $commandValue = ($action === 'open') ? 0 : 1; 
+                
+                // Construct the URL for the ESP32 Web Server
+                $esp32Endpoint = "http://{$esp32IpAddress}/control?pin={$esp32GpioPin}&value={$commandValue}";
 
-                // ส่งคำสั่งไปยัง Blynk Server โดยใช้ cURL เพื่อความยืดหยุ่นและการจัดการข้อผิดพลาดที่ดีกว่า
+                // Send command to ESP32 Web Server using cURL
                 $ch = curl_init();
-                curl_setopt($ch, CURLOPT_URL, $blynkUrl);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); // ไม่แสดงผลลัพธ์ออกไป
-                curl_setopt($ch, CURLOPT_TIMEOUT, 5); // กำหนด timeout 5 วินาที
-                $blynk_response = curl_exec($ch);
-                $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE); // รับ HTTP response code
+                curl_setopt($ch, CURLOPT_URL, $esp32Endpoint);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); // Do not output response directly
+                curl_setopt($ch, CURLOPT_TIMEOUT, 5); // Set a timeout of 5 seconds
+                $esp32_response = curl_exec($ch);
+                $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE); // Get HTTP response code
                 curl_close($ch);
 
-                // ตรวจสอบว่าส่งคำสั่งสำเร็จหรือไม่
-                if ($blynk_response !== false && $http_code >= 200 && $http_code < 300) {
+                // Check if command was sent successfully
+                if ($esp32_response !== false && $http_code >= 200 && $http_code < 300) {
                     if ($action === 'open') {
-                        echo "OPEN";
+                        echo "OPEN (Command sent to ESP32)";
                     } else {
-                        echo "CLOSED";
+                        echo "CLOSED (Command sent to ESP32)";
                     }
                 } else {
-                    echo "ERROR: Failed to send command to Blynk. Check internet connection or Blynk API. (HTTP Code: {$http_code}, Response: {$blynk_response})";
+                    echo "ERROR: Failed to send command to ESP32. Check network connection or ESP32 Web Server. (HTTP Code: {$http_code}, Response: {$esp32_response})";
                 }
             } else {
-                // หากเงื่อนไขไม่ถูกต้อง (ล็อกเกอร์ไม่ได้ถูกจองโดยผู้ใช้นี้ หรือไม่อยู่ในสถานะ 'occupied')
+                // If conditions are not met (locker not booked by this user or status is incorrect)
                 echo "ERROR: Locker is not occupied by this user or status is incorrect.";
             }
         } else {
-            // ไม่พบล็อกเกอร์ด้วยหมายเลขที่ระบุ
+            // Locker not found with the specified number
             echo "ERROR: Locker not found.";
         }
 
     } catch (PDOException $e) {
-        // บันทึกข้อผิดพลาดในการประมวลผลคำสั่ง SQL
+        // Log SQL errors
         error_log("SQL Error in api_locker_control.php: " . $e->getMessage());
         echo "ERROR: Database error occurred while controlling locker.";
     }
 } else {
     echo "ERROR: Missing parameters. Please provide locker_number, user_email, and action.";
 }
-// ไม่จำเป็นต้องปิดการเชื่อมต่อ PDO ด้วย $conn->close() เพราะ PDO จะจัดการเองเมื่อ script จบการทำงาน
+// PDO connection is automatically closed when the script finishes
 ?>
