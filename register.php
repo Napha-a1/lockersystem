@@ -18,42 +18,40 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     } elseif (strlen($password) < 6) { // เพิ่มการตรวจสอบความยาวรหัสผ่าน
         $error = "รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร";
     } else {
-        // ตรวจสอบอีเมลซ้ำ
-        $stmt_check = $conn->prepare("SELECT id FROM locker_users WHERE email = ?");
-        if ($stmt_check === false) {
-            $error = "เกิดข้อผิดพลาดในการเตรียมคำสั่ง SQL (ตรวจสอบอีเมล): " . $conn->error;
-        } else {
-            $stmt_check->bind_param("s", $email);
+        try {
+            // ตรวจสอบอีเมลซ้ำ
+            $stmt_check = $conn->prepare("SELECT id FROM locker_users WHERE email = :email");
+            $stmt_check->bindParam(':email', $email);
             $stmt_check->execute();
-            $stmt_check->store_result();
 
-            if ($stmt_check->num_rows > 0) {
+            if ($stmt_check->fetch(PDO::FETCH_ASSOC)) { // ถ้าพบข้อมูล แสดงว่าอีเมลนี้ถูกใช้แล้ว
                 $error = "อีเมลนี้ถูกใช้แล้ว";
             } else {
                 // แฮชรหัสผ่าน
                 $hashed_password = password_hash($password, PASSWORD_DEFAULT);
 
                 // เพิ่มผู้ใช้ใหม่
-                $stmt_insert = $conn->prepare("INSERT INTO locker_users (fullname, email, password) VALUES (?, ?, ?)");
-                if ($stmt_insert === false) {
-                    $error = "เกิดข้อผิดพลาดในการเตรียมคำสั่ง SQL (เพิ่มผู้ใช้): " . $conn->error;
+                $stmt_insert = $conn->prepare("INSERT INTO locker_users (fullname, email, password) VALUES (:fullname, :email, :password)");
+                $stmt_insert->bindParam(':fullname', $fullname);
+                $stmt_insert->bindParam(':email', $email);
+                $stmt_insert->bindParam(':password', $hashed_password);
+
+                if ($stmt_insert->execute()) {
+                    // สมัครสมาชิกสำเร็จ กลับไปหน้า Login พร้อมข้อความสำเร็จ
+                    header("Location: login.php?success=" . urlencode("สมัครสมาชิกสำเร็จ! กรุณาเข้าสู่ระบบ"));
+                    exit();
                 } else {
-                    $stmt_insert->bind_param("sss", $fullname, $email, $hashed_password);
-                    if ($stmt_insert->execute()) {
-                        // สมัครสมาชิกสำเร็จ กลับไปหน้า Login พร้อมข้อความสำเร็จ
-                        header("Location: login.php?success=" . urlencode("สมัครสมาชิกสำเร็จ! กรุณาเข้าสู่ระบบ"));
-                        exit();
-                    } else {
-                        $error = "เกิดข้อผิดพลาดในการสมัครสมาชิก: " . $stmt_insert->error;
-                    }
-                    $stmt_insert->close();
+                    $error = "เกิดข้อผิดพลาดในการสมัครสมาชิก: " . $stmt_insert->errorInfo()[2]; // PDO error message
                 }
             }
-            $stmt_check->close();
+        } catch (PDOException $e) {
+            // บันทึกข้อผิดพลาดในการประมวลผลคำสั่ง SQL
+            error_log("SQL Error: " . $e->getMessage());
+            $error = "เกิดข้อผิดพลาดในการสมัครสมาชิก โปรดลองอีกครั้ง";
         }
     }
 }
-$conn->close();
+// ไม่จำเป็นต้องปิดการเชื่อมต่อ PDO ด้วย $conn->close() เพราะ PDO จะจัดการเองเมื่อ script จบการทำงาน
 ?>
 
 <!DOCTYPE html>
