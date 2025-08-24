@@ -1,0 +1,63 @@
+services:
+  # บริการสำหรับ Web Application (PHP)
+  - type: web
+    name: locker-system-web
+    env: php
+    plan: free
+    rootDir: ./
+    buildCommand: "" # ถ้าไม่มี composer.json ไม่ต้องใช้
+    startCommand: php -S 0.0.0.0:$PORT -t .
+    envVars:
+      - key: DB_HOST
+        fromDatabase:
+          name: locker-db
+          property: host
+      - key: DB_USER
+        fromDatabase:
+          name: locker-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: locker-db
+          property: password
+      - key: DB_NAME
+        fromDatabase:
+          name: locker-db
+          property: database
+    autoDeploy: true
+
+  # บริการสำหรับฐานข้อมูล PostgreSQL
+  - type: postgres
+    name: locker-db
+    plan: free
+    databaseName: locker_system_web
+    user: locker_user
+    autoDeploy: false # ฐานข้อมูลไม่จำเป็นต้อง auto deploy
+
+  # บริการสำหรับรัน Job เพื่อ Migrate ฐานข้อมูล
+  - type: job
+    name: db-migration
+    env: php
+    plan: free
+    rootDir: ./
+    buildCommand: |
+      apt-get update && apt-get install -y postgresql-client
+    startCommand: ./init_db.sh
+    envVars:
+      - key: PGDATABASE
+        fromDatabase:
+          name: locker-db
+          property: database
+      - key: PGHOST
+        fromDatabase:
+          name: locker-db
+          property: host
+      - key: PGUSER
+        fromDatabase:
+          name: locker-db
+          property: user
+      - key: PGPASSWORD
+        fromDatabase:
+          name: locker-db
+          property: password
+    autoDeploy: false
