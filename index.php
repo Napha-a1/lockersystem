@@ -6,21 +6,25 @@ if (!isset($_SESSION['user_email'])) {
     exit();
 }
 
-include 'connect.php'; // เชื่อมต่อฐานข้อมูล
+include 'connect.php'; // เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
 
 // ดึงข้อมูลล็อกเกอร์ที่ผู้ใช้คนนี้จองไว้
 $user_email = $_SESSION['user_email'];
-$stmt = $conn->prepare("SELECT id, locker_number, status, end_time FROM lockers WHERE user_email = ? AND status = 'occupied'");
-$stmt->bind_param("s", $user_email);
-$stmt->execute();
-$result = $stmt->get_result();
 $booked_lockers = [];
-if ($result->num_rows > 0) {
-    while ($row = $result->fetch_assoc()) {
-        $booked_lockers[] = $row;
-    }
+
+try {
+    $stmt = $conn->prepare("SELECT id, locker_number, status, end_time FROM lockers WHERE user_email = :user_email AND status = 'occupied'");
+    $stmt->bindParam(':user_email', $user_email);
+    $stmt->execute();
+    $booked_lockers = $stmt->fetchAll(PDO::FETCH_ASSOC); // ใช้ fetchAll สำหรับดึงข้อมูลทั้งหมด
+} catch (PDOException $e) {
+    error_log("SQL Error fetching booked lockers: " . $e->getMessage());
+    // อาจจะแสดงข้อความ error บนหน้าเว็บ หรือ redirect ไปหน้า error
+    header('Location: error.php?message=' . urlencode('เกิดข้อผิดพลาดในการดึงข้อมูลล็อกเกอร์'));
+    exit();
 }
-$stmt->close();
+
+// ไม่จำเป็นต้องปิดการเชื่อมต่อ PDO ด้วย $conn->close() เพราะ PDO จะจัดการเองเมื่อ script จบการทำงาน
 ?>
 
 <!DOCTYPE html>
