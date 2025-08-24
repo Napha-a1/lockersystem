@@ -1,21 +1,24 @@
-# Use a base image with Node.js
-FROM docker.io/library/node:18-alpine
+# ใช้ PHP base image
+FROM php:8.1-apache
 
-# Set the working directory inside the container
-WORKDIR /usr/src/app
+# กำหนด working directory
+WORKDIR /var/www/html
 
-# Copy package.json and package-lock.json to the working directory
-COPY package.json ./
-COPY package-lock.json ./
-
-# Install application dependencies
-RUN npm install
-
-# Copy the rest of the application code
+# คัดลอกไฟล์ทั้งหมดจาก local directory ไปยัง container
 COPY . .
 
-# Expose the application port
-EXPOSE 3000
+# ติดตั้งส่วนขยายที่จำเป็น (เช่น pdo_pgsql สำหรับ PostgreSQL)
+RUN docker-php-ext-install pdo pdo_pgsql
 
-# Start the application
-CMD [ "node", "app.js" ]
+# เปิดใช้งาน mod_rewrite (ถ้าจำเป็น)
+RUN a2enmod rewrite
+
+# (ถ้ามี composer) ติดตั้ง Composer
+# COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
+# RUN composer install --no-dev
+
+# เปิดพอร์ตสำหรับเว็บเซิร์ฟเวอร์
+EXPOSE 80
+
+# (apache จะ start อัตโนมัติ)
+# CMD ["apache2-foreground"]
