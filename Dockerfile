@@ -1,6 +1,5 @@
 # ใช้ image php เวอร์ชั่น 8.1 ที่มี apache
-# เป็น image ที่มาจาก Debian ซึ่งใช้ apt ในการจัดการแพ็คเกจ
-FROM docker.io/library/php:8.1-apache@sha256:8ef6d301cf7bc8db84966e6d6e9ae129e9aad8b9caf8b9bcdaa83f0c7593234f
+FROM docker.io/library/php:8.1-apache
 
 # กำหนด working directory ภายใน container
 WORKDIR /var/www/html
@@ -16,28 +15,3 @@ RUN apt-get update && apt-get install -y libpq-dev \
 
 # คัดลอกไฟล์ทั้งหมดจากเครื่อง host ไปยัง working directory ใน container
 COPY . /var/www/html
-
-# ---
-# ตั้งค่า PHP เพื่อส่ง Error Log ไปยัง stderr
-# สร้างไฟล์คอนฟิกสำหรับ PHP-FPM
-# ไฟล์ www.conf นี้จะถูกโหลดโดย PHP-FPM
-COPY .docker/www.conf /etc/php/8.1/fpm/pool.d/www.conf
-
-# เปิดใช้งานการเขียน PHP Error Log ไปยัง stderr ใน php.ini
-# นี่คือวิธีที่ Render สามารถจับ PHP errors ได้โดยตรง
-RUN echo "error_log = /dev/stderr" >> /etc/php/8.1/apache2/php.ini \
-    && echo "display_errors = On" >> /etc/php/8.1/apache2/php.ini \
-    && echo "display_startup_errors = On" >> /etc/8.1/apache2/php.ini \
-    && echo "log_errors = On" >> /etc/php/8.1/apache2/php.ini \
-    && echo "memory_limit = 256M" >> /etc/php/8.1/apache2/php.ini
-
-# เพิ่มการตั้งค่าสำหรับ Apache เพื่อให้ PHP-FPM ทำงานได้
-# ใน PHP 8.1-apache image, mod_php ถูกใช้เป็นค่าเริ่มต้น
-# แต่เราต้องการใช้ PHP-FPM เพื่อการจัดการ Log ที่ยืดหยุ่นกว่า
-# ดังนั้น เราจะเปลี่ยนไปใช้ mod_proxy_fcgi
-RUN a2enmod proxy_fcgi setenvif
-RUN a2enconf php8.1-fpm
-RUN a2dismod php8.1 # ปิด mod_php เพื่อใช้ FPM แทน
-
-# กำหนดให้ Apache ส่ง .php requests ไปยัง PHP-FPM
-COPY .docker/000-default.conf /etc/apache2/sites-available/000-default.conf
