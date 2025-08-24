@@ -2,11 +2,11 @@ services:
   # บริการสำหรับ Web Application (PHP)
   - type: web
     name: locker-system-web
-    env: php
+    env: php                     # <--- ตรงนี้
     plan: free
     rootDir: ./
-    buildCommand: "" # ถ้าไม่มี composer.json ไม่ต้องใช้
-    startCommand: php -S 0.0.0.0:$PORT -t .
+    buildCommand: ""
+    startCommand: php -S 0.0.0.0:$PORT -t .  # <--- และตรงนี้
     envVars:
       - key: DB_HOST
         fromDatabase:
