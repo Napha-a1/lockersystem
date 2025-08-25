@@ -24,7 +24,7 @@ if (!isset($_SESSION['user_email'])) {
 
 // รับค่าจากฟอร์ม
 $locker_id = $_POST['locker_id'] ?? null;
-$start_time = $_POST['start_time'] ?? null; 
+$start_time = $_POST['start_time'] ?? null;
 $end_time = $_POST['end_time'] ?? null;
 
 // ตรวจสอบข้อมูลที่จำเป็น
@@ -55,7 +55,7 @@ try {
         throw new Exception("ไม่พบล็อกเกอร์ที่คุณเลือก"); // โยน Exception เพื่อให้ Rollback
     }
 
-    // ตรวจสอบสถานะของล็อกเกอร์ว่ายัง 'available' หรือไม่ (ใช้ตัวพิมพ์เล็กทั้งหมด)
+    // ตรวจสอบสถานะของล็อกเกอร์ว่ายัง 'available' หรือไม่ (ใช้ตัวพิมพ์เล็กทั้งหมดตาม constraint)
     if ($locker_data['status'] !== 'available') {
         writeBookingLog("ERROR: Locker ID {$locker_id} (Number: {$locker_data['locker_number']}) is not available (Status: {$locker_data['status']}).", $logFile);
         throw new Exception("ล็อกเกอร์หมายเลข " . htmlspecialchars($locker_data['locker_number']) . " ไม่ว่างแล้ว"); // โยน Exception เพื่อให้ Rollback
@@ -78,8 +78,7 @@ try {
     $total_price = number_format($price_per_hour * $total_hours, 2, '.', ''); // ให้เป็นทศนิยม 2 ตำแหน่ง
 
     // 3. อัปเดตสถานะล็อกเกอร์ในตาราง 'lockers'
-    //    *** เปลี่ยน 'Occupied' เป็น 'occupied' (ตัวพิมพ์เล็กทั้งหมด) ***
-    //    *** เปลี่ยน 'Available' เป็น 'available' (ตัวพิมพ์เล็กทั้งหมด) ***
+    //    ใช้ 'occupied' (ตัวพิมพ์เล็กทั้งหมด) และตรวจสอบ status = 'available' (ตัวพิมพ์เล็กทั้งหมด)
     $update_locker_sql = "UPDATE lockers SET status = 'occupied', user_email = :user_email, start_time = :start_time, end_time = :end_time WHERE id = :locker_id AND status = 'available'";
     $update = $conn->prepare($update_locker_sql);
     $update->bindParam(':user_email', $user_email);
