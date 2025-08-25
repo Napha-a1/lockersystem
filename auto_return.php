@@ -78,4 +78,4 @@ writeAutoReturnLog("--- สคริปต์ auto_return.php ทำงานเ
 // คุณอาจไม่ต้องการให้มี Output ใดๆ ถ้าสคริปต์นี้ถูกเรียกโดย Cron Job
 // หรือคุณอาจส่งข้อความตอบกลับถ้าเรียกผ่านเว็บ
 // echo "Auto-return process completed.";
-?>
+?> 
