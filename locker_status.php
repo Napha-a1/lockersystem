@@ -5,12 +5,21 @@ if (!isset($_SESSION['user_email'])) {
   exit();
 }
 
-include 'connect.php'; // เชื่อมต่อฐานข้อมูล
+include 'connect.php'; // เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
 
 // ดึงข้อมูลล็อกเกอร์ทั้งหมด
-$sql = "SELECT id, locker_number, status, user_email, start_time, end_time, price_per_hour, blynk_virtual_pin
-        FROM lockers ORDER BY locker_number ASC";
-$result = $conn->query($sql);
+$lockers = [];
+try {
+    $stmt = $conn->prepare("SELECT id, locker_number, status, user_email, start_time, end_time, price_per_hour, blynk_virtual_pin
+                            FROM lockers ORDER BY locker_number ASC");
+    $stmt->execute();
+    $lockers = $stmt->fetchAll(PDO::FETCH_ASSOC); // ดึงข้อมูลทั้งหมดในรูปแบบ associative array
+} catch (PDOException $e) {
+    error_log("SQL Error fetching locker status: " . $e->getMessage());
+    // อาจจะแสดงข้อความ error บนหน้าเว็บ หรือ redirect ไปหน้า error
+    header('Location: error.php?message=' . urlencode('เกิดข้อผิดพลาดในการดึงข้อมูลสถานะล็อกเกอร์'));
+    exit();
+}
 ?>
 
 <!DOCTYPE html>
@@ -112,8 +121,8 @@ $result = $conn->query($sql);
                         </tr>
                     </thead>
                     <tbody>
-                        <?php if ($result && $result->num_rows > 0): ?>
-                            <?php while($row = $result->fetch_assoc()): ?>
+                        <?php if (!empty($lockers)): ?>
+                            <?php foreach ($lockers as $row): ?>
                                 <tr>
                                     <td><?= htmlspecialchars($row['id']) ?></td>
                                     <td><?= htmlspecialchars($row['locker_number']) ?></td>
@@ -135,7 +144,7 @@ $result = $conn->query($sql);
                                     <td><?= $row['end_time'] ? date('d/m/Y H:i', strtotime($row['end_time'])) : '-' ?></td>
                                     <td><?= number_format($row['price_per_hour'], 2) ?></td>
                                 </tr>
-                            <?php endwhile; ?>
+                            <?php endforeach; ?>
                         <?php else: ?>
                             <tr>
                                 <td colspan="7" class="text-center">ไม่มีล็อกเกอร์ในระบบ</td>

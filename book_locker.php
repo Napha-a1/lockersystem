@@ -5,16 +5,19 @@ if (!isset($_SESSION['user_email'])) {
   exit();
 }
 
-include 'connect.php'; // เชื่อมต่อฐานข้อมูล
+include 'connect.php'; // เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
 
 // ดึงรายการล็อกเกอร์ที่ 'available'
 $available_lockers = [];
-$sql_lockers = "SELECT id, locker_number, price_per_hour FROM lockers WHERE status = 'available' ORDER BY locker_number ASC";
-$result_lockers = $conn->query($sql_lockers);
-if ($result_lockers && $result_lockers->num_rows > 0) {
-    while ($row = $result_lockers->fetch_assoc()) {
-        $available_lockers[] = $row;
-    }
+try {
+    $stmt = $conn->prepare("SELECT id, locker_number, price_per_hour FROM lockers WHERE status = 'available' ORDER BY locker_number ASC");
+    $stmt->execute();
+    $available_lockers = $stmt->fetchAll(PDO::FETCH_ASSOC); // ดึงข้อมูลทั้งหมดในรูปแบบ associative array
+} catch (PDOException $e) {
+    error_log("SQL Error fetching available lockers: " . $e->getMessage());
+    // อาจจะแสดงข้อความ error บนหน้าเว็บ หรือ redirect ไปหน้า error
+    header('Location: error.php?message=' . urlencode('เกิดข้อผิดพลาดในการดึงข้อมูลล็อกเกอร์ที่ว่าง'));
+    exit();
 }
 ?>
 
@@ -119,42 +122,32 @@ if ($result_lockers && $result_lockers->num_rows > 0) {
   <div class="card mx-auto shadow" style="max-width: 600px;">
     <div class="card-body p-4">
       <h4 class="card-title text-center mb-4 text-primary"><i class="fas fa-calendar-check me-2"></i>ระบบจองล็อกเกอร์</h4>
-
       <form action="book_process.php" method="post">
         <div class="mb-3">
           <label for="locker_id" class="form-label">หมายเลขล็อกเกอร์</label>
           <select class="form-select" name="locker_id" id="locker_id" required>
             <option value="">-- กรุณาเลือก --</option>
             <?php foreach ($available_lockers as $locker): ?>
-                <option value="<?= htmlspecialchars($locker['id']) ?>" data-price="<?= htmlspecialchars($locker['price_per_hour']) ?>">
-                    ล็อกเกอร์ #<?= htmlspecialchars($locker['locker_number']) ?> (<?= number_format($locker['price_per_hour'], 2) ?> บาท/ชั่วโมง)
-                </option>
+              <option value="<?= htmlspecialchars($locker['id']) ?>" data-price="<?= htmlspecialchars($locker['price_per_hour']) ?>">
+                ล็อกเกอร์ #<?= htmlspecialchars($locker['locker_number']) ?> (<?= number_format($locker['price_per_hour'], 2) ?> บาท/ชั่วโมง)
+              </option>
             <?php endforeach; ?>
           </select>
         </div>
-
         <div class="mb-3">
           <label for="start_time" class="form-label">เวลาเริ่ม</label>
           <input type="datetime-local" class="form-control" name="start_time" id="start_time" required>
         </div>
-
         <div class="mb-3">
           <label for="end_time" class="form-label">เวลาสิ้นสุด</label>
           <input type="datetime-local" class="form-control" name="end_time" id="end_time" required>
         </div>
-
-        <div class="mb-3">
-          <label for="user_email" class="form-label">อีเมลผู้จอง</label>
-          <input type="email" class="form-control" name="user_email" id="user_email" value="<?= htmlspecialchars($_SESSION['user_email']) ?>" readonly>
-        </div>
-
         <div class="mb-4">
-            <h5 class="text-end">ยอดชำระ: <span id="total_price" class="text-success fw-bold">0.00</span> บาท</h5>
+            <p class="form-label mb-0">ราคารวม: <strong class="text-primary" id="total_price">0.00</strong> บาท</p>
         </div>
-
         <div class="d-grid gap-2">
-          <button type="submit" class="btn btn-primary btn-lg">ยืนยันการจอง <i class="fas fa-clipboard-check ms-2"></i></button>
-          <a href="index.php" class="btn btn-secondary btn-lg mt-2">กลับหน้าหลัก</a>
+          <button type="submit" class="btn btn-primary"><i class="fas fa-bookmark me-2"></i>ยืนยันการจอง</button>
+          <a href="index.php" class="btn btn-secondary mt-2"><i class="fas fa-arrow-left me-2"></i>กลับหน้าหลัก</a>
         </div>
       </form>
     </div>
@@ -172,9 +165,9 @@ if ($result_lockers && $result_lockers->num_rows > 0) {
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 $(document).ready(function() {
-    // กำหนดค่าเริ่มต้นของเวลาปัจจุบันและเวลาสิ้นสุด
+    // กำหนดเวลาเริ่มต้นและสิ้นสุดเริ่มต้น (เวลาปัจจุบัน + 2 ชั่วโมง)
     const now = new Date();
-    // Offset for local timezone (Bangkok, +07:00)
+    // ปรับเวลาให้เป็น Timezone ท้องถิ่น (ป้องกันปัญหาเรื่อง offset)
     const offset = now.getTimezoneOffset() * 60000; // milliseconds
     const localNow = new Date(now.getTime() - offset);
 
@@ -207,8 +200,8 @@ $(document).ready(function() {
         $('#total_price').text(totalPrice.toFixed(2));
     }
 
-    // เรียกฟังก์ชันคำนวณราคาเมื่อมีการเปลี่ยนแปลง
-    $('#locker_id, #start_time, #end_time').on('change input', calculateTotalPrice);
+    // เรียกใช้ฟังก์ชันคำนวณราคาเมื่อค่าในฟอร์มเปลี่ยนแปลง
+    $('#locker_id, #start_time, #end_time').on('change keyup', calculateTotalPrice);
 
     // เรียกใช้ครั้งแรกเมื่อโหลดหน้า
     calculateTotalPrice();

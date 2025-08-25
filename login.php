@@ -1,5 +1,6 @@
 <?php
 session_start();
+// เรียกใช้งานไฟล์เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
 include 'connect.php';
 
 $error = '';
@@ -10,30 +11,34 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $password = trim($_POST['password'] ?? '');
     $role     = $_POST['role'] ?? 'user'; // default user
 
+    $sql = "";
     if ($role === "admin") {
         // ล็อกอินแอดมินด้วย username
-        $sql = "SELECT * FROM admins WHERE username = ?";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("s", $username);
+        $sql = "SELECT * FROM admins WHERE username = :username";
     } else {
         // ล็อกอินผู้ใช้ด้วย email
-        $sql = "SELECT * FROM locker_users WHERE email = ?";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("s", $username);
+        $sql = "SELECT * FROM locker_users WHERE email = :username"; // ใช้ :username เนื่องจาก PDO ใช้ named placeholders
     }
 
-    if ($stmt) {
+    try {
+        // เตรียมคำสั่ง SQL
+        $stmt = $conn->prepare($sql);
+
+        // ผูกค่าพารามิเตอร์
+        $stmt->bindParam(':username', $username);
+
+        // ประมวลผลคำสั่ง
         $stmt->execute();
-        $result = $stmt->get_result();
 
-        if ($result && $result->num_rows > 0) {
-            $row = $result->fetch_assoc();
+        // ดึงข้อมูลผู้ใช้
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
+        if ($row) { // ถ้าพบผู้ใช้
             if ($role === "admin") {
                 // ตรวจสอบรหัสผ่านสำหรับแอดมิน (สมมติว่าไม่ได้ hash)
                 // *** แนะนำให้ใช้ password_hash และ password_verify สำหรับรหัสผ่านแอดมินด้วย ***
                 if ($password === $row['password']) {
-                    $_SESSION['admin_username'] = $row['username']; // เปลี่ยนเป็น admin_username เพื่อความชัดเจน
+                    $_SESSION['admin_username'] = $row['username'];
                     $_SESSION['role'] = 'admin';
                     header("Location: admin/booking_stats.php");
                     exit();
@@ -43,7 +48,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             } else {
                 // ตรวจสอบรหัสผ่านสำหรับผู้ใช้ (ใช้ password_verify สำหรับ hashed password)
                 if (password_verify($password, $row['password'])) {
-                    $_SESSION['user_email'] = $row['email']; // เปลี่ยนเป็น user_email เพื่อความชัดเจน
+                    $_SESSION['user_email'] = $row['email'];
                     $_SESSION['role'] = 'user';
                     header("Location: index.php");
                     exit();
@@ -54,12 +59,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         } else {
             $error = "ชื่อผู้ใช้/อีเมล หรือรหัสผ่านไม่ถูกต้อง";
         }
-        $stmt->close();
-    } else {
-        $error = "เกิดข้อผิดพลาดในการเตรียมคำสั่ง SQL: " . $conn->error;
+    } catch (PDOException $e) {
+        // บันทึกข้อผิดพลาดในการประมวลผลคำสั่ง SQL
+        error_log("SQL Error: " . $e->getMessage());
+        $error = "เกิดข้อผิดพลาดในการเข้าสู่ระบบ โปรดลองอีกครั้ง";
     }
 }
-$conn->close();
+// ไม่จำเป็นต้องปิดการเชื่อมต่อ PDO ด้วย $conn->close() เพราะ PDO จะจัดการเองเมื่อ script จบการทำงาน
 ?>
 
 <!DOCTYPE html>
