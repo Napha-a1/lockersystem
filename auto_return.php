@@ -36,7 +36,7 @@ try {
 
             try {
                 // อัปเดตสถานะ Locker กลับเป็น 'available'
-                // *** ใช้ 'available' (ตัวพิมพ์เล็กทั้งหมด) เพื่อให้ตรงกับ Check Constraint ***
+                // ใช้ 'available' (ตัวพิมพ์เล็กทั้งหมด) เพื่อให้ตรงกับ Check Constraint
                 $update_locker_sql = "UPDATE lockers SET status = 'available', user_email = NULL, start_time = NULL, end_time = NULL WHERE id = :locker_id AND status = 'occupied'";
                 $update_stmt = $conn->prepare($update_locker_sql);
                 $update_stmt->bindParam(':locker_id', $locker_id, PDO::PARAM_INT);
@@ -78,4 +78,4 @@ writeAutoReturnLog("--- สคริปต์ auto_return.php ทำงานเ
 // คุณอาจไม่ต้องการให้มี Output ใดๆ ถ้าสคริปต์นี้ถูกเรียกโดย Cron Job
 // หรือคุณอาจส่งข้อความตอบกลับถ้าเรียกผ่านเว็บ
 // echo "Auto-return process completed.";
-?> 
+?>
