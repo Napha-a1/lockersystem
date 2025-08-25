@@ -1,0 +1,38 @@
+<?php
+session_start();
+if (!isset($_SESSION['admin_username'])) {
+    header("Location: admin_login.php");
+    exit();
+}
+
+include '../connect.php'; // เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
+
+// ตรวจสอบ ID
+if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
+    die("ID ไม่ถูกต้อง"); // ใช้ die สำหรับข้อผิดพลาดร้ายแรงที่หยุดการทำงานของสคริปต์
+}
+
+$id = (int)$_GET['id'];
+
+try {
+    // ลบล็อกเกอร์
+    $stmt = $conn->prepare("DELETE FROM lockers WHERE id = :id");
+    $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+
+    if ($stmt->execute()) {
+        // ลบสำเร็จ
+        header("Location: admin_manage_lockers.php?message=" . urlencode("ลบล็อกเกอร์เรียบร้อยแล้ว!"));
+        exit();
+    } else {
+        // ลบไม่สำเร็จ
+        // errorInfo()[2] ให้ข้อความ error จาก PDO
+        header("Location: admin_manage_lockers.php?message=" . urlencode("เกิดข้อผิดพลาดในการลบล็อกเกอร์: " . $stmt->errorInfo()[2]));
+        exit();
+    }
+} catch (PDOException $e) {
+    // บันทึกข้อผิดพลาดในการประมวลผลคำสั่ง SQL
+    error_log("SQL Error in admin_delete_locker.php: " . $e->getMessage());
+    header("Location: admin_manage_lockers.php?message=" . urlencode("เกิดข้อผิดพลาดของฐานข้อมูลในการลบล็อกเกอร์!"));
+    exit();
+}
+?>
