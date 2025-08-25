@@ -136,5 +136,5 @@ try {
     header("Location: book_locker.php?error=" . urlencode("เกิดข้อผิดพลาดของฐานข้อมูลระหว่างการจอง"));
     exit();
 }
-// PDO connection is automatically closed when the script finishes
+// PDO connection is automatically closed when the script finishes 
 ?>
