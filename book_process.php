@@ -55,7 +55,8 @@ try {
         throw new Exception("ไม่พบล็อกเกอร์ที่คุณเลือก"); // โยน Exception เพื่อให้ Rollback
     }
 
-    if ($locker_data['status'] !== 'available') {
+    // ตรวจสอบสถานะของล็อกเกอร์ว่ายัง 'Available' หรือไม่ (อาจต้องปรับค่า 'Available' ให้ตรงกับ Constraint ด้วย)
+    if ($locker_data['status'] !== 'Available' && $locker_data['status'] !== 'available') { // เพิ่มเช็คทั้งสองกรณีเพื่อความยืดหยุ่นก่อนอัปเดต
         writeBookingLog("ERROR: Locker ID {$locker_id} (Number: {$locker_data['locker_number']}) is not available (Status: {$locker_data['status']}).", $logFile);
         throw new Exception("ล็อกเกอร์หมายเลข " . htmlspecialchars($locker_data['locker_number']) . " ไม่ว่างแล้ว"); // โยน Exception เพื่อให้ Rollback
     }
@@ -77,8 +78,9 @@ try {
     $total_price = number_format($price_per_hour * $total_hours, 2, '.', ''); // ให้เป็นทศนิยม 2 ตำแหน่ง
 
     // 3. อัปเดตสถานะล็อกเกอร์ในตาราง 'lockers'
-    //    ใช้ AND status = 'available' อีกครั้งเพื่อยืนยัน Race Condition ที่ละเอียดขึ้น
-    $update_locker_sql = "UPDATE lockers SET status = 'occupied', user_email = :user_email, start_time = :start_time, end_time = :end_time WHERE id = :locker_id AND status = 'available'";
+    //    *** เปลี่ยน 'occupied' เป็น 'Occupied' เพื่อให้ตรงกับ Check Constraint ที่คาดหวัง ***
+    //    และใช้ status = 'Available' เพื่อยืนยัน Race Condition ที่ละเอียดขึ้น
+    $update_locker_sql = "UPDATE lockers SET status = 'Occupied', user_email = :user_email, start_time = :start_time, end_time = :end_time WHERE id = :locker_id AND status IN ('Available', 'available')";
     $update = $conn->prepare($update_locker_sql);
     $update->bindParam(':user_email', $user_email);
     $update->bindParam(':start_time', $start_time);
@@ -89,7 +91,7 @@ try {
         writeBookingLog("ERROR: Failed to update lockers table or locker status changed unexpectedly (Race condition). Locker ID {$locker_id}", $logFile);
         throw new Exception("ไม่สามารถอัปเดตสถานะล็อกเกอร์ได้ หรือล็อกเกอร์ไม่ว่างแล้ว");
     }
-    writeBookingLog("INFO: Locker ID {$locker_id} updated to 'occupied' by {$user_email}", $logFile);
+    writeBookingLog("INFO: Locker ID {$locker_id} updated to 'Occupied' by {$user_email}", $logFile);
 
 
     // 4. บันทึกข้อมูลการจองลงในตาราง 'bookings'
