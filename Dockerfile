@@ -23,13 +23,6 @@ COPY . /var/www/html
 # ไฟล์ www.conf นี้จะถูกโหลดโดย PHP-FPM
 COPY .docker/www.conf /etc/php/8.1/fpm/pool.d/www.conf
 
-# เปิดใช้งานการเขียน PHP Error Log ไปยัง stderr ใน php.ini ของ Apache
-# นี่คือวิธีที่ Render สามารถจับ PHP errors ได้โดยตรง
-RUN echo "error_log = /dev/stderr" >> /etc/php/8.1/apache2/php.ini \
-    && echo "display_errors = On" >> /etc/php/8.1/apache2/php.ini \
-    && echo "display_startup_errors = On" >> /etc/php/8.1/apache2/php.ini \
-    && echo "log_errors = On" >> /etc/php/8.1/apache2/php.ini \
-    && echo "memory_limit = 256M" >> /etc/php/8.1/apache2/php.ini
 
 # เพิ่มการตั้งค่าสำหรับ Apache เพื่อให้ PHP-FPM ทำงานได้
 # ใน PHP 8.1-apache image, mod_php ถูกใช้เป็นค่าเริ่มต้น
