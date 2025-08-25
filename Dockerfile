@@ -28,8 +28,8 @@ COPY .docker/000-default.conf /etc/apache2/sites-available/000-default.conf
 # mod_php8.1 เพื่อให้ Apache ประมวลผล PHP ได้โดยตรง (ควรเปิดอยู่แล้วใน image)
 # แก้ไขการเปิดใช้งาน site โดยการสร้าง symlink ด้วยตนเอง แทน a2ensite
 RUN a2enmod rewrite headers php8.1 && \
-    a2dissite 000-default.conf && \ # ปิด default site เดิมก่อน (ใช้ชื่อไฟล์ .conf)
-    ln -s /etc/apache2/sites-available/000-default.conf /etc/apache2/sites-enabled/000-default.conf && \ # สร้าง symlink เพื่อเปิดใช้งาน site ของเรา
+    a2dissite 000-default.conf && \
+    ln -s /etc/apache2/sites-available/000-default.conf /etc/apache2/sites-enabled/000-default.conf && \
     service apache2 restart
 
 # สั่งให้ container รัน Apache ใน foreground
