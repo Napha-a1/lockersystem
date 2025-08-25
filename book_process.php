@@ -24,7 +24,7 @@ if (!isset($_SESSION['user_email'])) {
 
 // รับค่าจากฟอร์ม
 $locker_id = $_POST['locker_id'] ?? null;
-$start_time = $_POST['start_time'] ?? null;
+$start_time = $_POST['start_time'] ?? null; 
 $end_time = $_POST['end_time'] ?? null;
 
 // ตรวจสอบข้อมูลที่จำเป็น
