@@ -1,8 +1,8 @@
-<?php 
+<?php
 session_start();
 include 'connect.php'; // เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
 
-// กำหนดพาธสำหรับไฟล์ Log (สามารถใช้ log file เดียวกับ auto_return.php ได้ หรือแยกก็ได้)
+// กำหนดพาธสำหรับไฟล์ Log
 $logFile = __DIR__ . '/booking_process_log.txt';
 
 // ฟังก์ชันสำหรับบันทึกข้อความลงในไฟล์ Log
@@ -15,119 +15,126 @@ writeBookingLog("--- สคริปต์ book_process.php เริ่มท�
 writeBookingLog("SESSION user_email: " . ($_SESSION['user_email'] ?? 'Not Set'), $logFile);
 writeBookingLog("POST Data: " . print_r($_POST, true), $logFile);
 
-
 // ตรวจสอบการล็อกอิน
 if (!isset($_SESSION['user_email'])) {
     writeBookingLog("ERROR: User not logged in, redirecting to login.php", $logFile);
-    header("Location: login.php?error=" . urlencode("กรุณาเข้าสู่ระบบก่อน"));
+    header("Location: login.php?error=" . urlencode("กรุณาเข้าสู่ระบบก่อนทำการจอง"));
     exit();
 }
 
 // รับค่าจากฟอร์ม
 $locker_id = $_POST['locker_id'] ?? null;
-$start_time = $_POST['start_time'] ?? null;
+$start_time = $_POST['start_time'] ?? null; 
 $end_time = $_POST['end_time'] ?? null;
-$user_email = $_SESSION['user_email']; // ใช้จาก session เพื่อความปลอดภัย
 
-// ตรวจสอบว่าได้รับข้อมูลครบถ้วนหรือไม่
+// ตรวจสอบข้อมูลที่จำเป็น
 if (empty($locker_id) || empty($start_time) || empty($end_time)) {
-    writeBookingLog("ERROR: Missing booking data (Locker ID: {$locker_id}, Start Time: {$start_time}, End Time: {$end_time})", $logFile);
-    header("Location: book_locker.php?error=" . urlencode("ข้อมูลการจองไม่ครบถ้วน!"));
+    writeBookingLog("ERROR: Missing required POST data.", $logFile);
+    header("Location: book_locker.php?error=" . urlencode("กรุณากรอกข้อมูลให้ครบถ้วนสำหรับการจอง"));
     exit();
 }
 
-// ตรวจสอบเวลาเริ่มและเวลาสิ้นสุด
-if (strtotime($start_time) >= strtotime($end_time)) {
-    writeBookingLog("ERROR: Invalid booking time (Start: {$start_time}, End: {$end_time})", $logFile);
-    header("Location: book_locker.php?error=" . urlencode("เวลาจองไม่ถูกต้อง! เวลาสิ้นสุดต้องหลังเวลาเริ่ม"));
-    exit();
-}
+$user_email = $_SESSION['user_email'];
 
 try {
-    // ดึงข้อมูลล็อกเกอร์ (รวมถึง locker_number ด้วย)
-    writeBookingLog("INFO: Fetching locker data for ID: {$locker_id}", $logFile);
-    $stmt = $conn->prepare("SELECT locker_number, status, price_per_hour FROM lockers WHERE id = :locker_id");
-    $stmt->bindParam(':locker_id', $locker_id, PDO::PARAM_INT);
-    $stmt->execute();
-    $locker_data = $stmt->fetch(PDO::FETCH_ASSOC);
+    // เริ่มต้น Transaction
+    $conn->beginTransaction();
+    writeBookingLog("INFO: Transaction started.", $logFile);
+
+    // 1. ตรวจสอบสถานะของล็อกเกอร์อีกครั้งเพื่อป้องกัน Race Condition
+    //    และดึงข้อมูล price_per_hour พร้อมกับ LOCK ROW สำหรับการอัปเดต
+    //    'FOR UPDATE' จะทำการ Lock แถวนี้ไว้เพื่อป้องกันการจองซ้ำซ้อนในเวลาเดียวกัน
+    $check_locker_sql = "SELECT locker_number, status, price_per_hour FROM lockers WHERE id = :locker_id FOR UPDATE";
+    $stmt_check = $conn->prepare($check_locker_sql);
+    $stmt_check->bindParam(':locker_id', $locker_id, PDO::PARAM_INT);
+    $stmt_check->execute();
+    $locker_data = $stmt_check->fetch(PDO::FETCH_ASSOC);
 
     if (!$locker_data) {
-        writeBookingLog("ERROR: Locker not found for ID: {$locker_id}", $logFile);
-        header("Location: book_locker.php?error=" . urlencode("ไม่พบล็อกเกอร์ที่เลือก!"));
-        exit();
+        writeBookingLog("ERROR: Locker ID {$locker_id} not found.", $logFile);
+        throw new Exception("ไม่พบล็อกเกอร์ที่คุณเลือก"); // โยน Exception เพื่อให้ Rollback
     }
 
+    // ตรวจสอบสถานะของล็อกเกอร์ว่ายัง 'available' หรือไม่ (ใช้ตัวพิมพ์เล็กทั้งหมด)
     if ($locker_data['status'] !== 'available') {
-        writeBookingLog("ERROR: Locker #{$locker_data['locker_number']} is not available (Status: {$locker_data['status']})", $logFile);
-        header("Location: book_locker.php?error=" . urlencode("ล็อกเกอร์ #" . htmlspecialchars($locker_data['locker_number']) . " ไม่ว่างสำหรับการจอง! สถานะปัจจุบัน: " . htmlspecialchars($locker_data['status'])));
-        exit();
+        writeBookingLog("ERROR: Locker ID {$locker_id} (Number: {$locker_data['locker_number']}) is not available (Status: {$locker_data['status']}).", $logFile);
+        throw new Exception("ล็อกเกอร์หมายเลข " . htmlspecialchars($locker_data['locker_number']) . " ไม่ว่างแล้ว"); // โยน Exception เพื่อให้ Rollback
     }
 
     $price_per_hour = $locker_data['price_per_hour'];
 
-    // คำนวณจำนวนชั่วโมงและราคารวม
-    $start_timestamp = strtotime($start_time);
-    $end_timestamp = strtotime($end_time);
-    $diff_seconds = $end_timestamp - $start_timestamp;
-    $hours = $diff_seconds / 3600; // แปลงเป็นชั่วโมง
-    $total_price = $price_per_hour * $hours;
+    // 2. คำนวณราคารวม (ทำซ้ำในฝั่ง Server เพื่อความปลอดภัย)
+    $start_datetime = new DateTime($start_time);
+    $end_datetime = new DateTime($end_time);
 
-    writeBookingLog("INFO: Locker data found. Price/hr: {$price_per_hour}, Hours: {$hours}, Total Price: {$total_price}", $logFile);
+    if ($start_datetime >= $end_datetime) {
+        writeBookingLog("ERROR: End time is not after start time. Start: {$start_time}, End: {$end_time}", $logFile);
+        throw new Exception("เวลาสิ้นสุดต้องหลังเวลาเริ่มต้น"); // โยน Exception เพื่อให้ Rollback
+    }
 
-    // อัปเดตสถานะล็อกเกอร์ในตาราง lockers
-    // กำหนด user_email, start_time, end_time ด้วย
-    writeBookingLog("INFO: Attempting to update lockers table for ID: {$locker_id}", $logFile);
-    $update_locker_sql = "UPDATE lockers SET status = 'occupied', user_email = :user_email, start_time = :start_time, end_time = :end_time WHERE id = :locker_id";
+    $interval = $start_datetime->diff($end_datetime);
+    // คำนวณชั่วโมงทั้งหมด รวมถึงนาทีและวินาที
+    $total_hours = $interval->days * 24 + $interval->h + $interval->i / 60 + $interval->s / 3600;
+    $total_price = number_format($price_per_hour * $total_hours, 2, '.', ''); // ให้เป็นทศนิยม 2 ตำแหน่ง
+
+    // 3. อัปเดตสถานะล็อกเกอร์ในตาราง 'lockers'
+    //    *** เปลี่ยน 'Occupied' เป็น 'occupied' (ตัวพิมพ์เล็กทั้งหมด) ***
+    //    *** เปลี่ยน 'Available' เป็น 'available' (ตัวพิมพ์เล็กทั้งหมด) ***
+    $update_locker_sql = "UPDATE lockers SET status = 'occupied', user_email = :user_email, start_time = :start_time, end_time = :end_time WHERE id = :locker_id AND status = 'available'";
     $update = $conn->prepare($update_locker_sql);
-    $update->bindParam(':user_email', $user_email, PDO::PARAM_STR);
-    $update->bindParam(':start_time', $start_time, PDO::PARAM_STR);
-    $update->bindParam(':end_time', $end_time, PDO::PARAM_STR);
+    $update->bindParam(':user_email', $user_email);
+    $update->bindParam(':start_time', $start_time);
+    $update->bindParam(':end_time', $end_time);
     $update->bindParam(':locker_id', $locker_id, PDO::PARAM_INT);
 
-    if ($update->execute()) {
-        writeBookingLog("INFO: Locker ID {$locker_id} updated to 'occupied'.", $logFile);
-
-        // บันทึกการจองลงในตาราง bookings
-        writeBookingLog("INFO: Attempting to insert into bookings table.", $logFile);
-        $insert_booking_sql = "INSERT INTO bookings (locker_id, user_email, start_time, end_time, total_price) VALUES (:locker_id, :user_email, :start_time, :end_time, :total_price)";
-        $insert_booking = $conn->prepare($insert_booking_sql);
-        $insert_booking->bindParam(':locker_id', $locker_id, PDO::PARAM_INT);
-        $insert_booking->bindParam(':user_email', $user_email, PDO::PARAM_STR);
-        $insert_booking->bindParam(':start_time', $start_time, PDO::PARAM_STR);
-        $insert_booking->bindParam(':end_time', $end_time, PDO::PARAM_STR);
-        $insert_booking->bindParam(':total_price', $total_price, PDO::PARAM_STR); // ใช้ PARAM_STR สำหรับ decimal/numeric
-        
-        if ($insert_booking->execute()) {
-            writeBookingLog("SUCCESS: Booking for locker #{$locker_data['locker_number']} completed successfully.", $logFile);
-            // Redirect ไปยังหน้า index.php พร้อมข้อความสำเร็จ
-            header("Location: index.php?success=" . urlencode("การจองล็อกเกอร์ #" . htmlspecialchars($locker_data['locker_number']) . " สำเร็จแล้ว! ยอดชำระ: " . number_format($total_price, 2) . " บาท"));
-            exit();
-        } else {
-            $errorInfo = $insert_booking->errorInfo();
-            writeBookingLog("ERROR: Failed to insert into bookings table. SQLSTATE: {$errorInfo[0]}, Code: {$errorInfo[1]}, Message: {$errorInfo[2]}", $logFile);
-            // หากบันทึก bookings ไม่สำเร็จ ให้ย้อนกลับสถานะ lockers
-            // ควรมีการ rollback transaction หากใช้ transaction (ถ้าใช้)
-            writeBookingLog("INFO: Reverting locker status for ID: {$locker_id} due to bookings insert failure.", $logFile);
-            $revert_locker_sql = "UPDATE lockers SET status = 'available', user_email = NULL, start_time = NULL, end_time = NULL WHERE id = :locker_id_revert";
-            $revert_locker = $conn->prepare($revert_locker_sql);
-            $revert_locker->bindParam(':locker_id_revert', $locker_id, PDO::PARAM_INT);
-            $revert_locker->execute();
-            writeBookingLog("INFO: Locker ID {$locker_id} reverted to 'available'.", $logFile);
-            
-            header("Location: book_locker.php?error=" . urlencode("เกิดข้อผิดพลาดในการบันทึกการจอง!"));
-            exit();
-        }
-    } else {
-        $errorInfo = $update->errorInfo();
-        writeBookingLog("ERROR: Failed to update lockers table. SQLSTATE: {$errorInfo[0]}, Code: {$errorInfo[1]}, Message: {$errorInfo[2]}", $logFile);
-        header("Location: book_locker.php?error=" . urlencode("ไม่สามารถอัปเดตสถานะล็อกเกอร์ได้!"));
-        exit();
+    if (!$update->execute() || $update->rowCount() === 0) { // หากไม่มีแถวถูกอัปเดต หมายถึงสถานะถูกเปลี่ยนไปแล้ว
+        writeBookingLog("ERROR: Failed to update lockers table or locker status changed unexpectedly (Race condition). Locker ID {$locker_id}", $logFile);
+        throw new Exception("ไม่สามารถอัปเดตสถานะล็อกเกอร์ได้ หรือล็อกเกอร์ไม่ว่างแล้ว");
     }
+    writeBookingLog("INFO: Locker ID {$locker_id} updated to 'occupied' by {$user_email}", $logFile);
+
+
+    // 4. บันทึกข้อมูลการจองลงในตาราง 'bookings'
+    $insert_booking_sql = "INSERT INTO bookings (locker_id, user_email, start_time, end_time, total_price, booking_date) VALUES (:locker_id, :user_email, :start_time, :end_time, :total_price, NOW())";
+    $insert_booking = $conn->prepare($insert_booking_sql);
+    $insert_booking->bindParam(':locker_id', $locker_id, PDO::PARAM_INT);
+    $insert_booking->bindParam(':user_email', $user_email);
+    $insert_booking->bindParam(':start_time', $start_time);
+    $insert_booking->bindParam(':end_time', $end_time);
+    $insert_booking->bindParam(':total_price', $total_price);
+
+    if (!$insert_booking->execute()) {
+        $errorInfo = $insert_booking->errorInfo();
+        writeBookingLog("ERROR: Failed to insert into bookings table. SQLSTATE: {$errorInfo[0]}, Code: {$errorInfo[1]}, Message: {$errorInfo[2]}", $logFile);
+        throw new Exception("เกิดข้อผิดพลาดในการบันทึกข้อมูลการจอง");
+    }
+    writeBookingLog("INFO: Booking for Locker ID {$locker_id} by {$user_email} recorded successfully.", $logFile);
+
+    // Commit Transaction เมื่อทุกอย่างสำเร็จ
+    $conn->commit();
+    writeBookingLog("INFO: Transaction committed successfully.", $logFile);
+
+    header("Location: index.php?success=" . urlencode("จองล็อกเกอร์สำเร็จ!"));
+    exit();
+
+} catch (Exception $e) {
+    // Rollback Transaction หากมีข้อผิดพลาดเกิดขึ้น
+    if ($conn->inTransaction()) {
+        $conn->rollBack();
+        writeBookingLog("ERROR: Transaction rolled back due to error: " . $e->getMessage(), $logFile);
+    }
+    error_log("Booking Error in book_process.php: " . $e->getMessage()); // บันทึกข้อผิดพลาดสำหรับ Debug
+    header("Location: book_locker.php?error=" . urlencode($e->getMessage()));
+    exit();
 } catch (PDOException $e) {
     // บันทึกข้อผิดพลาดในการประมวลผลคำสั่ง SQL
-    writeBookingLog("FATAL ERROR: PDOException in book_process.php: " . $e->getMessage(), $logFile);
-    header("Location: book_locker.php?error=" . urlencode("เกิดข้อผิดพลาดในการดำเนินการจอง โปรดลองอีกครั้ง"));
+    if ($conn->inTransaction()) {
+        $conn->rollBack();
+        writeBookingLog("FATAL ERROR: PDOException during transaction. Rolled back. Message: " . $e->getMessage(), $logFile);
+    }
+    error_log("FATAL PDO Error in book_process.php: " . $e->getMessage());
+    header("Location: book_locker.php?error=" . urlencode("เกิดข้อผิดพลาดของฐานข้อมูลระหว่างการจอง"));
     exit();
 }
-writeBookingLog("--- สคริปต์ book_process.php ทำงานเสร็จสิ้น ---", $logFile);
+// PDO connection is automatically closed when the script finishes
 ?>

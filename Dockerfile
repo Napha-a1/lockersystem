@@ -19,19 +19,16 @@ COPY . /var/www/html
 # (ไฟล์ .htaccess จะถูกโหลดโดย Apache โดยอัตโนมัติหาก AllowOverride All ถูกเปิดใช้งาน)
 COPY .htaccess /var/www/html/.htaccess
 
-# คัดลอกไฟล์การตั้งค่า Apache (ที่ถูกแก้ไขแล้ว)
+# คัดลอกไฟล์การตั้งค่า Apache
 COPY .docker/000-default.conf /etc/apache2/sites-available/000-default.conf
 
 # เปิดใช้งานการตั้งค่า Apache ที่จำเป็น
 # mod_rewrite เพื่อรองรับ URL rewrites (ถ้ามี)
 # headers สำหรับตั้งค่า HTTP headers
-# mod_php8.1 เพื่อให้ Apache ประมวลผล PHP ได้โดยตรง (ควรเปิดอยู่แล้วใน image)
-# ไม่มีการเปิดใช้งาน proxy_fcgi หรือ setenvif ที่เกี่ยวข้องกับ FPM ในขั้นตอนนี้
+# ลบ php8.1 ออกจาก a2enmod เพราะมันถูกโหลดอัตโนมัติหรือใช้ชื่ออื่น
 RUN a2enmod rewrite headers && \
-    # ตรวจสอบและเปิดใช้งาน mod_php8.1 (อาจจำเป็นถ้าถูกปิดโดยค่าเริ่มต้น)
-    a2enmod php8.1 && \
-    a2dissite 000-default && \ # ปิด default site เดิม
-    a2ensite 000-default && \ # เปิด site ของเรา
+    a2dissite 000-default.conf && \
+    ln -s /etc/apache2/sites-available/000-default.conf /etc/apache2/sites-enabled/000-default.conf && \
     service apache2 restart
 
 # สั่งให้ container รัน Apache ใน foreground
