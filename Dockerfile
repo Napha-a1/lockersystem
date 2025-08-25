@@ -6,7 +6,6 @@ FROM docker.io/library/php:8.1-apache@sha256:8ef6d301cf7bc8db84966e6d6e9ae129e9a
 WORKDIR /var/www/html
 
 # ติดตั้งแพ็คเกจที่จำเป็นสำหรับการ build pdo_pgsql
-# (ไม่จำเป็นต้องใช้ www.conf หรือ FPM ในการตั้งค่านี้)
 RUN apt-get update && apt-get install -y libpq-dev \
     # ติดตั้งส่วนขยาย pdo_pgsql สำหรับเชื่อมต่อ PostgreSQL
     && docker-php-ext-install pdo_pgsql \
@@ -17,7 +16,7 @@ RUN apt-get update && apt-get install -y libpq-dev \
 COPY . /var/www/html
 
 # คัดลอกไฟล์ .htaccess เพื่อตั้งค่า PHP ให้แสดง error log
-# (ไฟล์ .htaccess จะถูกโหลดโดย Apache โดยอัตโนมัติหาก AllowOverride All)
+# (ไฟล์ .htaccess จะถูกโหลดโดย Apache โดยอัตโนมัติหาก AllowOverride All ถูกเปิดใช้งาน)
 COPY .htaccess /var/www/html/.htaccess
 
 # คัดลอกไฟล์การตั้งค่า Apache (ที่ถูกแก้ไขแล้ว)
@@ -26,8 +25,11 @@ COPY .docker/000-default.conf /etc/apache2/sites-available/000-default.conf
 # เปิดใช้งานการตั้งค่า Apache ที่จำเป็น
 # mod_rewrite เพื่อรองรับ URL rewrites (ถ้ามี)
 # headers สำหรับตั้งค่า HTTP headers
-# mod_php8.1 ควรถูกเปิดใช้งานโดยอัตโนมัติใน base image แต่เราจะไม่เปิด proxy_fcgi
+# mod_php8.1 เพื่อให้ Apache ประมวลผล PHP ได้โดยตรง (ควรเปิดอยู่แล้วใน image)
+# ไม่มีการเปิดใช้งาน proxy_fcgi หรือ setenvif ที่เกี่ยวข้องกับ FPM ในขั้นตอนนี้
 RUN a2enmod rewrite headers && \
+    # ตรวจสอบและเปิดใช้งาน mod_php8.1 (อาจจำเป็นถ้าถูกปิดโดยค่าเริ่มต้น)
+    a2enmod php8.1 && \
     a2dissite 000-default && \ # ปิด default site เดิม
     a2ensite 000-default && \ # เปิด site ของเรา
     service apache2 restart
