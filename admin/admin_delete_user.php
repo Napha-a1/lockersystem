@@ -1,6 +1,6 @@
 <?php
 session_start();
-if (!isset($_SESSION['admin'])) {
+if (!isset($_SESSION['admin_username'])) {
     header("Location: admin_login.php");
     exit();
 }
@@ -32,7 +32,7 @@ try {
 } catch (PDOException $e) {
     // บันทึกข้อผิดพลาดในการประมวลผลคำสั่ง SQL
     error_log("SQL Error in admin_delete_user.php: " . $e->getMessage());
-    header("Location: admin_manage_users.php?message=" . urlencode("เกิดข้อผิดพลาดของฐานข้อมูลในการลบผู้ใช้งาน"));
+    header("Location: admin_manage_users.php?message=" . urlencode("เกิดข้อผิดพลาดของฐานข้อมูลในการลบผู้ใช้งาน!"));
     exit();
 }
 ?>
