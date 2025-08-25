@@ -1,4 +1,23 @@
-php_flag display_errors On
-php_flag log_errors On
-php_value error_log /dev/stderr
-php_value memory_limit 256M
+<VirtualHost *:80>
+    ServerAdmin webmaster@localhost
+    DocumentRoot /var/www/html
+
+    # เพิ่ม ServerName เพื่อแก้ไขข้อความเตือน AH00558
+    ServerName localhost
+
+    <Directory /var/www/html>
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog ${APACHE_LOG_DIR}/error.log
+    CustomLog ${APACHE_LOG_DIR}/access.log combined
+
+    # ส่วนนี้ถูกลบออกแล้ว:
+    # <FilesMatch \.php$>
+    #     SetHandler "proxy:unix:/run/php/php8.1-fpm.sock|fcgi://localhost/"
+    # </FilesMatch>
+    # เนื่องจากเราใช้ mod_php โดยตรง Apache จะประมวลผลไฟล์ .php ได้เอง
+
+</VirtualHost>
