@@ -25,9 +25,8 @@ COPY .docker/000-default.conf /etc/apache2/sites-available/000-default.conf
 # เปิดใช้งานการตั้งค่า Apache ที่จำเป็น
 # mod_rewrite เพื่อรองรับ URL rewrites (ถ้ามี)
 # headers สำหรับตั้งค่า HTTP headers
-# mod_php8.1 เพื่อให้ Apache ประมวลผล PHP ได้โดยตรง (ควรเปิดอยู่แล้วใน image)
-# แก้ไขการเปิดใช้งาน site โดยการสร้าง symlink ด้วยตนเอง แทน a2ensite
-RUN a2enmod rewrite headers php8.1 && \
+# ลบ php8.1 ออกจาก a2enmod เพราะมันถูกโหลดอัตโนมัติหรือใช้ชื่ออื่น
+RUN a2enmod rewrite headers && \
     a2dissite 000-default.conf && \
     ln -s /etc/apache2/sites-available/000-default.conf /etc/apache2/sites-enabled/000-default.conf && \
     service apache2 restart
