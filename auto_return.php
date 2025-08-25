@@ -1,102 +1,81 @@
 <?php
-// ไฟล์ auto_return.php พร้อมการบันทึก (Logging)
-// ใช้สำหรับตรวจสอบและคืนสถานะล็อกเกอร์ที่หมดเวลาจองแล้วโดยอัตโนมัติ
-// โค้ดเวอร์ชันนี้จะจัดการเฉพาะฐานข้อมูลเท่านั้น ไม่มีการเชื่อมต่อกับ Blynk หรือ ESP32 โดยตรง
+session_start();
+include 'connect.php'; // เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
 
-// กำหนดพาธสำหรับไฟล์ Log
-$logFile = __DIR__ . '/auto_return_log.txt';
+// กำหนดพาธสำหรับไฟล์ Log (สามารถใช้ไฟล์เดียวกับ book_process.php ได้)
+$logFile = __DIR__ . '/auto_return_log.txt'; // เปลี่ยนเป็นชื่อไฟล์ Log ที่เหมาะสม
 
 // ฟังก์ชันสำหรับบันทึกข้อความลงในไฟล์ Log
-function writeLog($message, $logPath) {
+function writeAutoReturnLog($message, $logPath) {
     $timestamp = date('Y-m-d H:i:s');
     file_put_contents($logPath, "[{$timestamp}] {$message}\n", FILE_APPEND);
 }
 
-// เริ่มต้นการบันทึกเมื่อสคริปต์ถูกเรียก
-writeLog("--- สคริปต์ auto_return.php เริ่มทำงาน (ไม่มีการควบคุมอุปกรณ์ภายนอก) ---", $logFile);
-
-include 'connect.php'; // เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
-
-// ตรวจสอบการเชื่อมต่อ PDO
-if ($conn === null) {
-    writeLog("ERROR: เชื่อมต่อฐานข้อมูลล้มเหลว", $logFile);
-    exit();
-}
-
-writeLog("🔄 เริ่มตรวจสอบล็อกเกอร์หมดเวลา...", $logFile);
+writeAutoReturnLog("--- สคริปต์ auto_return.php เริ่มทำงาน ---", $logFile);
 
 try {
-    // ดึงข้อมูลล็อกเกอร์ที่มีสถานะ 'occupied'
-    // และเวลาสิ้นสุดน้อยกว่าหรือเท่ากับเวลาปัจจุบัน
-    // ยังคง SELECT blynk_virtual_pin อยู่ แต่จะไม่ได้นำไปใช้ในการควบคุม
-    $sql = "SELECT id, locker_number, user_email, start_time, end_time, price_per_hour, blynk_virtual_pin
-            FROM lockers
-            WHERE status = 'occupied' AND end_time < NOW()";
-    $stmt_select = $conn->prepare($sql);
-    $stmt_select->execute();
-    $expired_lockers = $stmt_select->fetchAll(PDO::FETCH_ASSOC);
+    // ดึง Locker ที่หมดเวลาจองแล้ว
+    // ตรวจสอบว่า end_time น้อยกว่าหรือเท่ากับเวลาปัจจุบัน (NOW())
+    // และสถานะยังเป็น 'occupied' (ตัวพิมพ์เล็กทั้งหมด)
+    $stmt = $conn->prepare("SELECT id, locker_number, user_email FROM lockers WHERE end_time <= NOW() AND status = 'occupied'");
+    $stmt->execute();
+    $expired_lockers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     if (empty($expired_lockers)) {
-        writeLog("✅ ไม่มีรายการที่หมดเวลาในตอนนี้", $logFile);
-        exit();
-    }
+        writeAutoReturnLog("INFO: No expired lockers found at this time.", $logFile);
+    } else {
+        foreach ($expired_lockers as $locker) {
+            $locker_id = $locker['id'];
+            $locker_number = $locker['locker_number'];
+            $user_email = $locker['user_email'];
 
-    writeLog("📦 พบ " . count($expired_lockers) . " รายการที่หมดเวลา", $logFile);
+            writeAutoReturnLog("INFO: Processing expired locker ID: {$locker_id}, Number: {$locker_number}, User: {$user_email}", $logFile);
 
-    foreach ($expired_lockers as $row) {
-        $locker_id_db = $row['id'];
-        $locker_number = $row['locker_number'];
-        $email = $row['user_email'];
-        $start = $row['start_time'];
-        $end = $row['end_time'];
-        $price_per_hour = $row['price_per_hour'];
-        // $blynkVirtualPin = $row['blynk_virtual_pin']; // ไม่ได้ใช้ในการควบคุมอีกต่อไป
+            // เริ่มต้น Transaction สำหรับแต่ละ Locker เพื่อความปลอดภัย
+            $conn->beginTransaction();
 
-        writeLog("💡 กำลังประมวลผลล็อกเกอร์ #{$locker_number} (ID: {$locker_id_db}) หมดเวลาตั้งแต่ {$end}", $logFile);
+            try {
+                // อัปเดตสถานะ Locker กลับเป็น 'available'
+                // *** ใช้ 'available' (ตัวพิมพ์เล็กทั้งหมด) เพื่อให้ตรงกับ Check Constraint ***
+                $update_locker_sql = "UPDATE lockers SET status = 'available', user_email = NULL, start_time = NULL, end_time = NULL WHERE id = :locker_id AND status = 'occupied'";
+                $update_stmt = $conn->prepare($update_locker_sql);
+                $update_stmt->bindParam(':locker_id', $locker_id, PDO::PARAM_INT);
 
-        // บันทึกการจองลงในตาราง bookings_history (สำหรับเก็บประวัติ)
-        $insert_history_sql = "INSERT INTO bookings_history (locker_id, user_email, start_time, end_time, price_per_hour, total_price, returned_at)
-                               VALUES (:locker_id, :user_email, :start_time, :end_time, :price_per_hour, :total_price, NOW())";
-        $stmt_insert_history = $conn->prepare($insert_history_sql);
+                if ($update_stmt->execute() && $update_stmt->rowCount() > 0) {
+                    writeAutoReturnLog("INFO: Locker ID {$locker_id} (Number: {$locker_number}) status updated to 'available'.", $logFile);
 
-        // คำนวณราคารวม
-        $start_timestamp = strtotime($start);
-        $end_timestamp = strtotime($end);
-        $diff_seconds = $end_timestamp - $start_timestamp;
-        $hours = $diff_seconds / 3600;
-        $total_price = $price_per_hour * $hours;
+                    // บันทึก Log การคืน Locker ในตาราง bookings (ถ้ามีคอลัมน์สำหรับสถานะการคืน)
+                    // ตัวอย่าง: อัปเดตสถานะในตาราง bookings เป็น 'returned' หรือ 'completed'
+                    // $update_booking_status_sql = "UPDATE bookings SET status = 'returned' WHERE locker_id = :locker_id AND user_email = :user_email AND end_time <= NOW()";
+                    // $update_booking_status_stmt = $conn->prepare($update_booking_status_sql);
+                    // $update_booking_status_stmt->bindParam(':locker_id', $locker_id, PDO::PARAM_INT);
+                    // $update_booking_status_stmt->bindParam(':user_email', $user_email);
+                    // $update_booking_status_stmt->execute();
 
-        $stmt_insert_history->bindParam(':locker_id', $locker_id_db, PDO::PARAM_INT);
-        $stmt_insert_history->bindParam(':user_email', $email);
-        $stmt_insert_history->bindParam(':start_time', $start);
-        $stmt_insert_history->bindParam(':end_time', $end);
-        $stmt_insert_history->bindParam(':price_per_hour', $price_per_hour, PDO::PARAM_STR);
-        $stmt_insert_history->bindParam(':total_price', $total_price, PDO::PARAM_STR);
-
-        if ($stmt_insert_history->execute()) {
-            writeLog("✅ บันทึกประวัติการจองลง bookings_history สำหรับล็อกเกอร์ #{$locker_number} สำเร็จ", $logFile);
-
-            // อัปเดตสถานะล็อกเกอร์เป็น 'available'
-            $update_locker_sql = "UPDATE lockers SET status = 'available', user_email = NULL, start_time = NULL, end_time = NULL WHERE id = :locker_id";
-            $stmt_update = $conn->prepare($update_locker_sql);
-            $stmt_update->bindParam(':locker_id', $locker_id_db, PDO::PARAM_INT);
-
-            if ($stmt_update->execute()) {
-                writeLog("✅ อัปเดตสถานะล็อกเกอร์ #{$locker_number} เป็น 'ว่าง' สำเร็จ", $logFile);
-                // *** ส่วนของการส่งคำสั่งไปยัง Blynk Server (หรืออุปกรณ์อื่น) ถูกลบออกแล้ว ***
-                writeLog("ℹ️ ไม่มีการส่งคำสั่งไปยังอุปกรณ์ภายนอกสำหรับล็อกเกอร์ #{$locker_number} (Blynk/ESP32)", $logFile);
-            } else {
-                writeLog("❌ ข้อผิดพลาด: ไม่สามารถอัปเดตสถานะล็อกเกอร์ #{$locker_number} ได้: " . $stmt_update->errorInfo()[2], $logFile);
+                    $conn->commit();
+                    writeAutoReturnLog("INFO: Transaction committed for Locker ID {$locker_id}.", $logFile);
+                } else {
+                    writeAutoReturnLog("WARNING: Failed to update Locker ID {$locker_id} (Number: {$locker_number}) status. May be already updated or status changed.", $logFile);
+                    $conn->rollBack();
+                }
+            } catch (Exception $e) {
+                if ($conn->inTransaction()) {
+                    $conn->rollBack();
+                }
+                writeAutoReturnLog("ERROR: Exception during processing Locker ID {$locker_id}: " . $e->getMessage(), $logFile);
+                error_log("Auto-return Exception: " . $e->getMessage());
             }
-        } else {
-            writeLog("❌ ข้อผิดพลาด: ไม่สามารถบันทึกประวัติการจองลง bookings_history ได้สำหรับล็อกเกอร์ #{$locker_number}: " . $stmt_insert_history->errorInfo()[2], $logFile);
         }
     }
 
 } catch (PDOException $e) {
-    writeLog("ERROR: Database operation failed in auto_return.php: " . $e->getMessage(), $logFile);
+    writeAutoReturnLog("FATAL ERROR: PDOException in auto_return.php: " . $e->getMessage(), $logFile);
+    error_log("FATAL PDO Error in auto_return.php: " . $e->getMessage());
 }
 
-writeLog("--- สคริปต์ auto_return.php ทำงานเสร็จสิ้น ---", $logFile);
-exit(); // สคริปต์ทำงานเสร็จสิ้น
+writeAutoReturnLog("--- สคริปต์ auto_return.php ทำงานเสร็จสิ้น ---", $logFile);
+
+// คุณอาจไม่ต้องการให้มี Output ใดๆ ถ้าสคริปต์นี้ถูกเรียกโดย Cron Job
+// หรือคุณอาจส่งข้อความตอบกลับถ้าเรียกผ่านเว็บ
+// echo "Auto-return process completed.";
 ?>
