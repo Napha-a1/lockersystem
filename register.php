@@ -1,175 +1,135 @@
 <?php
-// เชื่อมต่อฐานข้อมูล (ใช้ connect.php เพื่อความสอดคล้อง)
+session_start();
+// Include the database connection file.
+// IMPORTANT: For security, use environment variables to configure the database.
+// Do not hard-code connection details here.
 include 'connect.php';
 
-$error = "";
+$error = '';
+$success = $_GET['success'] ?? ''; // For displaying messages from register.php
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
+    $username = trim($_POST['username'] ?? '');
+    $password = trim($_POST['password'] ?? '');
+    $role     = $_POST['role'] ?? 'user'; // default user
 
-    $fullname = trim($_POST['fullname'] ?? '');
-    $email = trim($_POST['email'] ?? '');
-    $password = $_POST['password'] ?? '';
-    $confirm_password = $_POST['confirm_password'] ?? '';
-
-    if (empty($fullname) || empty($email) || empty($password) || empty($confirm_password)) {
-        $error = "กรุณากรอกข้อมูลให้ครบถ้วน";
-    } elseif ($password !== $confirm_password) {
-        $error = "รหัสผ่านไม่ตรงกัน";
-    } elseif (strlen($password) < 6) { // เพิ่มการตรวจสอบความยาวรหัสผ่าน
-        $error = "รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร";
+    $sql = "";
+    if ($role === "admin") {
+        // Admin login by username
+        $sql = "SELECT * FROM admins WHERE username = :username";
     } else {
-        try {
-            // ตรวจสอบอีเมลซ้ำ
-            $stmt_check = $conn->prepare("SELECT id FROM locker_users WHERE email = :email");
-            $stmt_check->bindParam(':email', $email);
-            $stmt_check->execute();
+        // User login by email
+        $sql = "SELECT * FROM locker_users WHERE email = :username";
+    }
 
-            if ($stmt_check->fetch(PDO::FETCH_ASSOC)) { // ถ้าพบข้อมูล แสดงว่าอีเมลนี้ถูกใช้แล้ว
-                $error = "อีเมลนี้ถูกใช้แล้ว";
-            } else {
-                // แฮชรหัสผ่าน
-                $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+    try {
+        $stmt = $conn->prepare($sql);
+        $stmt->bindParam(':username', $username);
+        $stmt->execute();
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-                // เพิ่มผู้ใช้ใหม่
-                $stmt_insert = $conn->prepare("INSERT INTO locker_users (fullname, email, password) VALUES (:fullname, :email, :password)");
-                $stmt_insert->bindParam(':fullname', $fullname);
-                $stmt_insert->bindParam(':email', $email);
-                $stmt_insert->bindParam(':password', $hashed_password);
-
-                if ($stmt_insert->execute()) {
-                    // สมัครสมาชิกสำเร็จ กลับไปหน้า Login พร้อมข้อความสำเร็จ
-                    header("Location: login.php?success=" . urlencode("สมัครสมาชิกสำเร็จ! กรุณาเข้าสู่ระบบ"));
+        if ($row) { // If user is found
+            if ($role === "admin") {
+                // For admin, we use password_verify on the hashed password.
+                if (password_verify($password, $row['password'])) {
+                    $_SESSION['admin_username'] = $row['username'];
+                    header("Location: locker_status.php");
                     exit();
                 } else {
-                    $error = "เกิดข้อผิดพลาดในการสมัครสมาชิก: " . $stmt_insert->errorInfo()[2]; // PDO error message
+                    $error = "รหัสผ่านไม่ถูกต้อง";
+                }
+            } else {
+                // For user, use password_verify.
+                if (password_verify($password, $row['password'])) {
+                    $_SESSION['user_email'] = $row['email'];
+                    header("Location: index.php");
+                    exit();
+                } else {
+                    $error = "อีเมลหรือรหัสผ่านไม่ถูกต้อง";
                 }
             }
-        } catch (PDOException $e) {
-            // บันทึกข้อผิดพลาดในการประมวลผลคำสั่ง SQL
-            error_log("SQL Error: " . $e->getMessage());
-            $error = "เกิดข้อผิดพลาดในการสมัครสมาชิก โปรดลองอีกครั้ง";
+        } else {
+            $error = "ไม่พบผู้ใช้หรือแอดมิน";
         }
+    } catch (PDOException $e) {
+        $error = "เกิดข้อผิดพลาดในการเข้าสู่ระบบ";
+        error_log("Login error: " . $e->getMessage());
     }
 }
-// ไม่จำเป็นต้องปิดการเชื่อมต่อ PDO ด้วย $conn->close() เพราะ PDO จะจัดการเองเมื่อ script จบการทำงาน
 ?>
 
 <!DOCTYPE html>
 <html lang="th">
 <head>
-  <meta charset="UTF-8">
-  <title>สมัครสมาชิกผู้ใช้งาน</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-  <style>
-    body {
-      background: linear-gradient(to right, #4CAF50, #8BC34A); /* Green Gradient */
-      height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: 'Inter', sans-serif;
-      color: #333;
-    }
-    .register-box {
-        background: #fff;
-        padding: 2.5rem 3rem;
-        border-radius: 15px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-        width: 100%;
-        max-width: 500px;
-        animation: fadeIn 0.8s ease-out;
-    }
-    .register-box h2 {
-      text-align: center;
-      margin-bottom: 2rem;
-      color: #28a745; /* Success green */
-      font-weight: bold;
-    }
-    .form-label {
-        font-weight: 600;
-        color: #555;
-    }
-    .form-control {
-        border-radius: 8px;
-        border: 1px solid #ced4da;
-        padding: 0.75rem 1rem;
-    }
-    .form-control:focus {
-        border-color: #5cb85c;
-        box-shadow: 0 0 0 0.25rem rgba(40, 167, 69, 0.25);
-    }
-    .btn-success {
-        background-color: #28a745;
-        border-color: #28a745;
-        border-radius: 8px;
-        padding: 0.75rem 1.5rem;
-        font-size: 1.1rem;
-        font-weight: bold;
-        transition: background-color 0.3s ease, transform 0.2s ease;
-    }
-    .btn-success:hover {
-        background-color: #218838;
-        border-color: #218838;
-        transform: translateY(-2px);
-    }
-    .alert {
-        border-radius: 8px;
-        font-size: 0.95rem;
-    }
-    .text-center a {
-        color: #28a745;
-        font-weight: 500;
-        text-decoration: none;
-    }
-    .text-center a:hover {
-        text-decoration: underline;
-    }
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(-20px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>เข้าสู่ระบบ - Locker System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8f9fa; }
+        .login-container {
+            max-width: 400px;
+            margin-top: 50px;
+            padding: 30px;
+            background-color: #ffffff;
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+    </style>
 </head>
 <body>
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-8 col-lg-6">
+                <div class="login-container">
+                    <h2 class="text-center mb-4 font-weight-bold">เข้าสู่ระบบ</h2>
 
-<div class="register-box">
-    <h2><i class="fas fa-user-plus me-2"></i>สมัครสมาชิกผู้ใช้งาน</h2>
+                    <?php if ($error): ?>
+                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                            <i class="fas fa-exclamation-triangle me-2"></i><?= htmlspecialchars($error) ?>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    <?php endif; ?>
 
-    <?php if (!empty($error)): ?>
-        <div class="alert alert-danger alert-dismissible fade show" role="alert">
-            <i class="fas fa-exclamation-circle me-2"></i><?= htmlspecialchars($error) ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-    <?php endif; ?>
+                    <?php if ($success): ?>
+                        <div class="alert alert-success alert-dismissible fade show" role="alert">
+                            <i class="fas fa-check-circle me-2"></i><?= htmlspecialchars($success) ?>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    <?php endif; ?>
 
-    <form method="post" action="">
-        <div class="mb-3">
-            <label for="fullname" class="form-label">ชื่อ-นามสกุล</label>
-            <input type="text" class="form-control" name="fullname" id="fullname" required value="<?= htmlspecialchars($_POST['fullname'] ?? '') ?>">
+                    <form method="POST">
+                        <div class="mb-3">
+                            <label for="role" class="form-label">ประเภทผู้ใช้:</label>
+                            <select name="role" id="role" class="form-select">
+                                <option value="user">ผู้ใช้</option>
+                                <option value="admin">แอดมิน</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="username" class="form-label">ชื่อผู้ใช้ (แอดมิน) / อีเมล (ผู้ใช้):</label>
+                            <input type="text" name="username" id="username" class="form-control" required>
+                        </div>
+
+                        <div class="mb-4">
+                            <label for="password" class="form-label">รหัสผ่าน:</label>
+                            <input type="password" name="password" id="password" class="form-control" required>
+                        </div>
+
+                        <div class="d-grid mb-3">
+                            <button type="submit" class="btn btn-primary">เข้าสู่ระบบ <i class="fas fa-sign-in-alt ms-2"></i></button>
+                        </div>
+                    </form>
+                    <div class="text-center mt-3">
+                        <p>ยังไม่มีบัญชีใช่ไหม? <a href="register.php">สมัครสมาชิก</a></p>
+                    </div>
+                </div>
+            </div>
         </div>
-        <div class="mb-3">
-            <label for="email" class="form-label">อีเมล</label>
-            <input type="email" class="form-control" name="email" id="email" required value="<?= htmlspecialchars($_POST['email'] ?? '') ?>">
-        </div>
-        <div class="mb-3">
-            <label for="password" class="form-label">รหัสผ่าน</label>
-            <input type="password" class="form-control" name="password" id="password" required>
-        </div>
-        <div class="mb-4">
-            <label for="confirm_password" class="form-label">ยืนยันรหัสผ่าน</label>
-            <input type="password" class="form-control" name="confirm_password" id="confirm_password" required>
-        </div>
-        <div class="d-grid mb-3">
-            <button type="submit" class="btn btn-success">สมัครสมาชิก <i class="fas fa-user-check ms-2"></i></button>
-        </div>
-    </form>
-    <div class="text-center mt-3">
-        <p>มีบัญชีอยู่แล้ว? <a href="login.php">เข้าสู่ระบบที่นี่</a></p>
     </div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
