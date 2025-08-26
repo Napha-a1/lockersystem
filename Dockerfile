@@ -1,35 +1,35 @@
-# ใช้ image php เวอร์ชั่น 8.1 ที่มี apache
-# เป็น image ที่มาจาก Debian ซึ่งใช้ apt ในการจัดการแพ็คเกจ
-FROM docker.io/library/php:8.1-apache@sha256:8ef6d301cf7bc8db84966e6d6e9ae129e9aad8b9caf8b9bcdaa83f0c7593234f
+# Start from the base PHP-Apache image
+FROM php:8.1-apache
 
-# กำหนด working directory ภายใน container
-WORKDIR /var/www/html
+# Install mysqli extension for PHP (if needed, replace with your actual needs)
+# Example: If you use pdo_pgsql, you might need to install that instead.
+# For PDO PostgreSQL, it would be:
+# RUN docker-php-ext-install pdo_pgsql
 
-# ติดตั้งแพ็คเกจที่จำเป็นสำหรับการ build pdo_pgsql
-RUN apt-get update && apt-get install -y libpq-dev \
-    # ติดตั้งส่วนขยาย pdo_pgsql สำหรับเชื่อมต่อ PostgreSQL
-    && docker-php-ext-install pdo_pgsql \
-    # ล้างไฟล์ที่ไม่จำเป็นหลังจากการติดตั้งเพื่อลดขนาด image
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+# Enable mod_rewrite for Apache
+RUN a2enmod rewrite
 
-# คัดลอกไฟล์ทั้งหมดจากเครื่อง host ไปยัง working directory ใน container
+# Copy your PHP application files into the container's web root
 COPY . /var/www/html
 
-# คัดลอกไฟล์ .htaccess เพื่อตั้งค่า PHP ให้แสดง error log
-# (ไฟล์ .htaccess จะถูกโหลดโดย Apache โดยอัตโนมัติหาก AllowOverride All ถูกเปิดใช้งาน)
-COPY .htaccess /var/www/html/.htaccess
+# --- ADD THIS SECTION FOR FILE PERMISSIONS ---
+# Set ownership to www-data user/group (Apache's default user)
+# This ensures Apache has proper access to your files.
+RUN chown -R www-data:www-data /var/www/html
 
-# คัดลอกไฟล์การตั้งค่า Apache
-COPY .docker/000-default.conf /etc/apache2/sites-available/000-default.conf
+# Set specific write permissions for the log file
+# The www-data user needs to be able to create/write to this file.
+RUN chmod 775 /var/www/html/auto_return_log.txt || true \
+    && touch /var/www/html/auto_return_log.txt \
+    && chmod 664 /var/www/html/auto_return_log.txt
+# The `|| true` makes sure the command doesn't fail if the file doesn't exist yet.
+# `touch` creates the file if it doesn't exist, then `chmod` sets permissions.
+# You might need to adjust 775/664 depending on your exact security needs,
+# but this should allow the www-data user to write to it.
+# --- END ADDITION ---
 
-# เปิดใช้งานการตั้งค่า Apache ที่จำเป็น
-# mod_rewrite เพื่อรองรับ URL rewrites (ถ้ามี)
-# headers สำหรับตั้งค่า HTTP headers
-# ลบ php8.1 ออกจาก a2enmod เพราะมันถูกโหลดอัตโนมัติหรือใช้ชื่ออื่น
-RUN a2enmod rewrite headers && \
-    a2dissite 000-default.conf && \
-    ln -s /etc/apache2/sites-available/000-default.conf /etc/apache2/sites-enabled/000-default.conf && \
-    service apache2 restart
+# Expose port 80 for the web server
+EXPOSE 80
 
-# สั่งให้ container รัน Apache ใน foreground
+# Start Apache web server (default for php-apache image)
 CMD ["apache2-foreground"]
