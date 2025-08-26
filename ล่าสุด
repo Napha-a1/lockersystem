@@ -1,0 +1,476 @@
+#include <WiFi.h>
+#include <Firebase_ESP_Client.h> // Library for Firebase communication
+#include <addons/RTDBHelper.h>   // Part of Firebase-ESP-Client library
+#include <Keypad.h>              // Library for Keypad
+#include <NewPing.h>             // Library for Ultrasonic Sensor
+#include <Wire.h>                // Library for I2C communication (built-in)
+#include <LiquidCrystal_I2C.h>   // Library for I2C LCD
+#include <time.h>                // Library for time functions
+
+// ===============================================
+// WiFi & Firebase Configuration (!!! EDIT THESE VALUES !!!)
+// ===============================================
+#define WIFI_SSID "vivo Y36"                   // <<--- Change to your WiFi name
+#define WIFI_PASSWORD "nsr9978997899"          // <<--- Change to your WiFi password
+
+// Your Firebase Project details
+#define FIREBASE_HOST "smart-parcel-locker-default-rtdb.asia-southeast1.firebasedatabase.app" // <<--- แก้ไขตรงนี้ให้ตรงกับ databaseURL ใน firebaseConfig ของคุณ
+#define FIREBASE_AUTH "meQNVj4dfMYZOo8bHBFujt8SZZV6vBiL406Yc2gg" // <<--- Change to your Database Secret from Firebase Console
+
+// Define Firebase data object
+FirebaseData firebaseData;
+FirebaseAuth firebaseAuth; 
+FirebaseConfig firebaseConfig; 
+
+// ===============================================
+// Locker Specifics
+// ===============================================
+const String LOCKER_ID = "LOCKER001"; // This locker's unique ID (must match web app)
+String currentLockerPasscode = "1234"; // Default passcode for physical keypad (can be updated from Firebase)
+
+// ===============================================
+// Pin Definitions
+// ===============================================
+// Keypad Pins (for 4x3 keypad)
+const byte ROWS = 4; // four rows
+const byte COLS = 3; // three columns for 4x3 keypad
+char keys[ROWS][COLS] = {
+  {'1','2','3'},
+  {'4','5','6'},
+  {'7','8','9'},
+  {'*','0','#'}
+};
+byte rowPins[ROWS] = {27, 26, 25, 33}; // GPIO Pins for rows (R1, R2, R3, R4)
+byte colPins[COLS] = {18, 19, 23};      // GPIO Pins for columns (C1, C2, C3)
+Keypad customKeypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+
+// Door Sensor (Reed Switch) Pin
+const int DOOR_SENSOR_PIN = 13; // GPIO 13
+String doorStatus = "closed";   // Door status: "open" or "closed"
+
+// Solenoid Lock Pin (connected to Relay IN pin)
+const int RELAY_PIN = 4; // GPIO 4 (Same as solenoidPin in your test code)
+
+// IR Sensor for Parcel Counting (Parcel Detector 1)
+const int IR_SENSOR_PIN = 14; // GPIO 14
+int irSensorState = HIGH;      // Current state of IR sensor (HIGH=no object, LOW=object)
+bool irParcelDetectedPreviously = false; // Flag to detect state change
+
+// Ultrasonic Sensor (HC-SR04) for Parcel Confirmation (Parcel Detector 2)
+#define TRIGGER_PIN 12 // GPIO 12
+#define ECHO_PIN    15 // GPIO 15
+#define MAX_DISTANCE 200 // Maximum distance (cm) to ping.
+NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE);
+
+int parcelCount = 0;
+const int PARCEL_DETECT_THRESHOLD_CM = 10; // Distance (cm) to consider a parcel present
+bool ultrasonicParcelDetectedPreviously = false; // Flag to detect state change
+
+// LCD Configuration (!!! EDIT I2C Address !!!)
+const int LCD_I2C_ADDRESS = 0x27; // <<--- Change to the I2C Address you found
+const int LCD_COLUMNS = 16;
+const int LCD_ROWS = 2;
+LiquidCrystal_I2C lcd(LCD_I2C_ADDRESS, LCD_COLUMNS, LCD_ROWS);
+
+// ===============================================
+// Global Variables & Timers
+// ===============================================
+unsigned long lastFirebaseUpdateMillis = 0;
+const unsigned long FIREBASE_UPDATE_INTERVAL = 5000; // Update main status to Firebase every 5 seconds
+
+unsigned long lastDoorStatusCheckMillis = 0;
+const unsigned long DOOR_CHECK_INTERVAL = 100; // Check door status every 100ms
+
+unsigned long lastSensorCheckMillis = 0;
+const unsigned long SENSOR_CHECK_INTERVAL = 200; // Check IR/Ultrasonic status every 200ms
+
+unsigned long unlockDurationMillis = 0;
+const unsigned long UNLOCK_HOLD_TIME = 3000; // Unlock for 3 seconds
+
+String enteredPasscode = "";
+unsigned long lastKeyPressTime = 0;
+const unsigned long KEYPAD_RESET_TIMEOUT = 10000; // Reset entered passcode after 10 seconds of inactivity
+
+unsigned long lcdMessageDisplayTime = 0; // Timer for temporary LCD messages
+
+// ===============================================
+// Functions
+// ===============================================
+
+// Function to get current formatted timestamp
+// ฟังก์ชันนี้จะดึงเวลาปัจจุบันจาก NTP server และแปลงเป็นเวลาท้องถิ่นของประเทศไทย
+String getFormattedTimestamp() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Failed to obtain time");
+    return "N/A";
+  }
+  
+  char timestampBuffer[20]; // Buffer for "YYYY-MM-DD HH:MM:SS"
+  strftime(timestampBuffer, sizeof(timestampBuffer), "%Y-%m-%d %H:%M:%S", &timeinfo);
+  return String(timestampBuffer);
+}
+
+// Function to display messages on LCD
+// duration = 0 means display permanently until new message
+void displayLcdMessage(String line1, String line2 = "", unsigned long duration = 0) {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(line1);
+  if (line2 != "") {
+    lcd.setCursor(0, 1);
+    lcd.print(line2);
+  }
+  if (duration > 0) {
+    lcdMessageDisplayTime = millis() + duration; // Set timer for temporary message
+  } else {
+    lcdMessageDisplayTime = 0; // Display permanently
+  }
+}
+
+// Function to display normal status on LCD
+void displayNormalStatusOnLcd() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Parcel: ");
+  lcd.print(parcelCount);
+  lcd.setCursor(0, 1);
+  lcd.print("Door: ");
+  lcd.print(doorStatus);
+}
+
+void connectToWiFi() {
+  Serial.print("Connecting to WiFi...");
+  displayLcdMessage("Connecting WiFi...", "", 0); // Display on LCD
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi connected.");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+  displayLcdMessage("WiFi Connected!", WiFi.localIP().toString(), 2000); // Display IP on LCD
+}
+
+void firebaseInit() {
+  Serial.println("Initializing Firebase...");
+  displayLcdMessage("Init Firebase...", "", 0); // Display on LCD
+  
+  firebaseConfig.host = FIREBASE_HOST;
+  firebaseConfig.signer.tokens.legacy_token = FIREBASE_AUTH; 
+
+  Firebase.begin(&firebaseConfig, &firebaseAuth); 
+  Firebase.reconnectWiFi(true); // Auto reconnect WiFi
+  Serial.println("Firebase initialized.");
+  displayLcdMessage("Firebase Ready!", "", 2000); // Display on LCD
+}
+
+// Update locker status to Firebase
+void updateLockerStatus() {
+  if (Firebase.ready() && (millis() - lastFirebaseUpdateMillis > FIREBASE_UPDATE_INTERVAL)) {
+    Serial.println("Updating locker status to Firebase...");
+    String path = "lockers/" + LOCKER_ID + "/status";
+    
+    FirebaseJson json;
+    json.set("parcelCount", parcelCount);
+    json.set("doorStatus", doorStatus);
+    // แก้ไข: ใช้ฟังก์ชัน getFormattedTimestamp() แทน Firebase.getCurrentTime()
+    json.set("lastUpdated", getFormattedTimestamp()); 
+
+    if (Firebase.RTDB.updateNode(&firebaseData, path.c_str(), &json)) {
+      Serial.println("Locker status updated successfully.");
+    } else {
+      Serial.println("Failed to update locker status: " + firebaseData.errorReason());
+    }
+
+    lastFirebaseUpdateMillis = millis();
+  }
+}
+
+// Send notification to Firebase
+void sendNotification(String type, String message) {
+  if (Firebase.ready()) {
+    String path = "lockers/" + LOCKER_ID + "/notifications";
+    
+    FirebaseJson json;
+    json.set("type", type);
+    json.set("message", message);
+    // แก้ไข: ใช้ฟังก์ชัน getFormattedTimestamp() แทน Firebase.getCurrentTime()
+    json.set("timestamp", getFormattedTimestamp()); 
+
+    if (Firebase.RTDB.pushJSON(&firebaseData, path.c_str(), &json)) {
+      Serial.println("Notification sent successfully.");
+    } else {
+      Serial.println("Failed to send notification: " + firebaseData.errorReason());
+    }
+  }
+}
+
+// Function to unlock the locker
+void unlockLocker() {
+  Serial.println("Unlocking locker...");
+  // แก้ไข: ใช้ LOW เพื่อสั่งงาน Solenoid ให้ปลดล็อค (ตามหลัก Active-LOW Relay)
+  digitalWrite(RELAY_PIN, LOW); 
+  sendNotification("unlocked", "ตู้ถูกปลดล็อค");
+  displayLcdMessage("Locker Unlocked!", "Welcome", UNLOCK_HOLD_TIME); 
+  unlockDurationMillis = millis(); // Start timer for unlock duration
+}
+
+// Function to lock the locker
+void lockLocker() {
+  Serial.println("Locking locker...");
+  // แก้ไข: ใช้ HIGH เพื่อสั่งงาน Solenoid ให้ล็อค (ตามหลัก Active-LOW Relay)
+  digitalWrite(RELAY_PIN, HIGH); 
+  sendNotification("locked_auto", "ตู้ถูกล็อคอัตโนมัติ");
+  displayLcdMessage("Locker Locked!", "", 2000); 
+}
+
+// Check door status
+void checkDoorStatus() {
+  if (millis() - lastDoorStatusCheckMillis > DOOR_CHECK_INTERVAL) {
+    int currentDoorSensorState = digitalRead(DOOR_SENSOR_PIN);
+    String newDoorStatus;
+
+    // แก้ไข Logic ให้ถูกต้อง:
+    // เมื่อ Reed Switch แปะกัน (ประตูปิด) ขา GPIO จะถูกดึงลงเป็น LOW
+    // เมื่อ Reed Switch ห่างกัน (ประตูเปิด) ขา GPIO จะถูกดึงขึ้นเป็น HIGH
+    if (currentDoorSensorState == HIGH) { 
+      newDoorStatus = "open";
+    } else {
+      newDoorStatus = "closed";
+    }
+
+    if (newDoorStatus != doorStatus) {
+      doorStatus = newDoorStatus;
+      Serial.println("Door status changed to: " + doorStatus);
+      updateLockerStatus(); // Update immediately when status changes
+      sendNotification("door_" + doorStatus, String("ตู้ถูก") + (doorStatus == "open" ? "เปิด" : "ปิด")); 
+      displayLcdMessage("Door: " + doorStatus, "", 2000); 
+    }
+    lastDoorStatusCheckMillis = millis();
+  }
+}
+
+// Check parcel sensors (IR and Ultrasonic)
+void checkParcelSensors() {
+  if (millis() - lastSensorCheckMillis > SENSOR_CHECK_INTERVAL) {
+    // IR Sensor
+    irSensorState = digitalRead(IR_SENSOR_PIN);
+    bool currentIrDetected = (irSensorState == LOW); // LOW = object detected
+
+    // Ultrasonic Sensor
+    unsigned int uSDistance = sonar.ping_cm(); // Distance in centimeters
+    bool currentUltrasonicDetected = (uSDistance > 0 && uSDistance <= PARCEL_DETECT_THRESHOLD_CM); // Object within threshold
+
+    // Detect new parcel (when both IR and Ultrasonic detect, and previously did not)
+    if (currentIrDetected && currentUltrasonicDetected && (!irParcelDetectedPreviously || !ultrasonicParcelDetectedPreviously)) {
+        parcelCount++;
+        Serial.printf("New parcel detected! Current count: %d\n", parcelCount);
+        updateLockerStatus(); // Update immediately
+        sendNotification("parcel_added", "มีพัสดุชิ้นใหม่เข้ามา");
+        displayLcdMessage("New Parcel!", "Count: " + String(parcelCount), 2000); 
+    } 
+    // Detect parcel removal (when both IR and Ultrasonic do not detect, and previously did)
+    else if (!currentIrDetected && !currentUltrasonicDetected && (irParcelDetectedPreviously || ultrasonicParcelDetectedPreviously)) {
+      if (parcelCount > 0) { // Prevent negative count
+          parcelCount--;
+          Serial.printf("Parcel removed! Current count: %d\n", parcelCount);
+          updateLockerStatus(); // Update immediately
+          sendNotification("parcel_removed", "มีการนำพัสดุออกจากตู้");
+          displayLcdMessage("Parcel Removed!", "Count: " + String(parcelCount), 2000); 
+      }
+    }
+    
+    // Update previous detection status
+    irParcelDetectedPreviously = currentIrDetected;
+    ultrasonicParcelDetectedPreviously = currentUltrasonicDetected;
+
+    lastSensorCheckMillis = millis();
+  }
+}
+
+// Read locker passcode from Firebase
+void getLockerPasscodeFromFirebase() {
+    if (Firebase.RTDB.getString(&firebaseData, "lockers/" + LOCKER_ID + "/control/lockerPasscode")) {
+        if (firebaseData.dataType() == "string") {
+            String newPasscode = firebaseData.stringData();
+            if (newPasscode != currentLockerPasscode) {
+                currentLockerPasscode = newPasscode;
+                Serial.println("Locker passcode updated from Firebase: " + currentLockerPasscode);
+                sendNotification("passcode_updated", "รหัสผ่านตู้ถูกอัปเดต");
+                displayLcdMessage("Passcode Updated!", "", 2000); 
+            }
+        }
+    } else {
+        Serial.println("Failed to get locker passcode from Firebase: " + firebaseData.errorReason());
+    }
+}
+
+// Firebase RTDB Stream Callback (for receiving commands from web app)
+void streamCallback(FirebaseStream data) {
+  Serial.printf("Stream path: %s, Event path: %s, Data type: %s, Event type: %s\n",
+              data.streamPath().c_str(),
+              data.dataPath().c_str(),
+              data.dataType().c_str(),
+              data.eventType().c_str());
+
+  // Receive unlock command
+  if (data.dataPath() == "/control/unlockCommand" && data.dataType() == "json") {
+    FirebaseJson json;
+    json.setJsonData(data.jsonString()); 
+    FirebaseJsonData jsonData; // Declare FirebaseJsonData object
+    json.get(jsonData, "/command"); // Get data into jsonData
+    String command = jsonData.to<String>(); 
+    
+    if (command == "UNLOCK") {
+      Serial.println("Received UNLOCK command from Firebase!");
+      unlockLocker();
+      // Remove the command from Firebase after processing (to allow re-sending from web app)
+      Firebase.RTDB.deleteNode(&firebaseData, ("lockers/" + LOCKER_ID + "/control/unlockCommand").c_str());
+    }
+  } 
+  // Receive updated locker passcode from web app
+  else if (data.dataPath() == "/control/lockerPasscode" && data.dataType() == "string") {
+    // --- จุดนี้คือโค้ดที่อัปเดตรหัสผ่านทันทีเมื่อมีการเปลี่ยนแปลงบนหน้าเว็บ ---
+      String newPasscode = data.stringData();
+      if (newPasscode != currentLockerPasscode) {
+          currentLockerPasscode = newPasscode;
+          Serial.println("Locker passcode updated via stream: " + currentLockerPasscode);
+          sendNotification("passcode_updated", "รหัสผ่านตู้ถูกอัปเดต");
+          displayLcdMessage("Passcode Updated!", "", 2000); 
+      }
+    // -------------------------------------------------------------------------
+  }
+}
+
+// Callback when stream times out
+void streamTimeoutCallback(bool timeout) {
+  if (timeout) {
+    Serial.println("Stream timed out, re-connecting...");
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(100);
+
+  // Initialize LCD
+  Wire.begin(21, 22); // Initialize I2C on GPIO 21 (SDA) and GPIO 22 (SCL)
+  lcd.init();      // Initialize the LCD
+  lcd.backlight();   // Turn on the backlight
+  displayLcdMessage("Smart Parcel Box", "Initializing...", 3000); // Welcome message
+
+  // Set Relay pin as OUTPUT and ensure locker is locked initially
+  pinMode(RELAY_PIN, OUTPUT);
+  lockLocker(); 
+
+  // Set door sensor and IR sensor pins as INPUT_PULLUP (if sensors are active-LOW)
+  pinMode(DOOR_SENSOR_PIN, INPUT_PULLUP); 
+  pinMode(IR_SENSOR_PIN, INPUT_PULLUP); 
+  
+  // Connect to WiFi
+  connectToWiFi();
+  
+  // --- START: โค้ดใหม่สำหรับการตั้งค่าเวลาและ timezone ---
+  // กำหนด NTP server และ timezone สำหรับประเทศไทย (ICT, UTC+7)
+  // NTP servers: pool.ntp.org is a good default
+  // timezone string: "ICT-7" for Indochina Time, UTC+7
+  configTime(25200, 0, "pool.ntp.org", "time.nist.gov"); // 25200 = 7 * 60 * 60 (seconds for UTC+7)
+  Serial.println("Timezone and NTP server configured.");
+  displayLcdMessage("Syncing Time...", "", 2000);
+  delay(1000); // Wait a bit for time to sync
+  // --- END: โค้ดใหม่ ---
+
+  // Initialize Firebase
+  firebaseInit();
+
+  // Set up Firebase Realtime Database stream
+  if (!Firebase.RTDB.beginStream(&firebaseData, ("lockers/" + LOCKER_ID).c_str())) {
+      Serial.printf("Can't begin stream: %s\n", firebaseData.errorReason().c_str());
+  }
+  Firebase.RTDB.setStreamCallback(&firebaseData, streamCallback, streamTimeoutCallback);
+  
+  // Read initial passcode from Firebase (if available)
+  getLockerPasscodeFromFirebase();
+
+  // Display initial status on LCD
+  displayNormalStatusOnLcd();
+}
+
+void loop() {
+  // Check if Firebase Client is ready
+  if (!Firebase.ready()) {
+    return;
+  }
+
+  // Handle Keypad input
+  char key = customKeypad.getKey();
+  if (key) {
+    Serial.print("Key pressed: ");
+    Serial.println(key);
+    enteredPasscode += key;
+    lastKeyPressTime = millis(); // Reset timeout timer
+
+    // Display entered passcode on LCD
+    displayLcdMessage("Enter Passcode:", enteredPasscode);
+
+    if (key == '#') { // Assuming '#' is the Enter key
+      Serial.print("Entered Passcode: ");
+      Serial.println(enteredPasscode);
+
+      // Compare passcode (exclude '#' from comparison)
+      if (enteredPasscode.substring(0, enteredPasscode.length() - 1) == currentLockerPasscode) { 
+        Serial.println("Passcode correct! Unlocking...");
+        displayLcdMessage("Passcode Correct!", "Unlocking...", 2000); 
+        unlockLocker();
+        sendNotification("local_unlocked", "ตู้ถูกปลดล็อคด้วยรหัสผ่านที่ตู้");
+      } else {
+        Serial.println("Incorrect Passcode.");
+        displayLcdMessage("Incorrect Passcode!", "Try again.", 2000); 
+        sendNotification("incorrect_passcode", "พยายามปลดล็อคด้วยรหัสผ่านผิด");
+      }
+      enteredPasscode = ""; // Clear entered passcode
+    } else if (key == '*') { // Assuming '*' is the Clear key
+        enteredPasscode = "";
+        Serial.println("Passcode cleared.");
+        displayLcdMessage("Passcode Cleared!", "", 1000); 
+    }
+  }
+
+  // Reset passcode if no key pressed for a while
+  if (enteredPasscode.length() > 0 && millis() - lastKeyPressTime > KEYPAD_RESET_TIMEOUT) {
+      enteredPasscode = "";
+      Serial.println("Keypad input timed out, passcode reset.");
+      displayLcdMessage("Input Timed Out!", "Passcode Reset.", 2000); 
+  }
+
+  // Check door status
+  checkDoorStatus();
+
+  // Check parcel sensors (IR & Ultrasonic)
+  checkParcelSensors();
+
+  // If unlocked, relock after specified time
+  if (unlockDurationMillis > 0 && millis() - unlockDurationMillis > UNLOCK_HOLD_TIME) {
+    lockLocker();
+    unlockDurationMillis = 0; // Reset timer
+  }
+
+  // Periodically update all status to Firebase
+  updateLockerStatus();
+
+  // Manage LCD display (return to normal status after temporary message disappears)
+  if (lcdMessageDisplayTime > 0 && millis() > lcdMessageDisplayTime) {
+    displayNormalStatusOnLcd();
+    lcdMessageDisplayTime = 0;
+  } 
+  else if (lcdMessageDisplayTime == 0 && enteredPasscode.length() == 0) {
+    // No special message active, could update normal status here if needed
+  }
+  
+  // Must call Firebase.RTDB.runStream() in the loop to handle real-time events
+  Firebase.RTDB.runStream();
+
+  delay(10); // Small delay
+}
