@@ -1,6 +1,12 @@
 # Start from the base PHP-Apache image
 FROM php:8.1-apache
 
+# Install PostgreSQL client libraries (libpq-dev)
+# This is necessary for pdo_pgsql extension to be built successfully.
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install PDO PostgreSQL extension for PHP
 # This is crucial for connecting to PostgreSQL databases from PHP
 RUN docker-php-ext-install pdo_pgsql
