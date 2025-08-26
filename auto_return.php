@@ -1,15 +1,15 @@
 <?php
 
-// Check if the script is being executed by a web server
+// Check if the script is being executed by a web server.
 if (php_sapi_name() != "cli") {
-    // --- สคริปต์ auto_return.php เริ่มทำงาน ---
-    // This log entry confirms the script started via a web request.
+    // --- auto_return.php script started ---
+    // Log entry confirms the script started via a web request.
     log_message("--- auto_return.php script started via web request ---");
 
     // Check for the provided API key to prevent unauthorized access.
     // Replace 'YOUR_API_KEY' with your actual key.
     $api_key = isset($_GET['key']) ? $_GET['key'] : '';
-    $expected_key = 'JWIA2@AF1!kfkova'; // Your secret key for cron job
+    $expected_key = 'JWIA2@AF1!kfkova'; // Your secret key for the cron job.
 
     if ($api_key !== $expected_key) {
         // Log an unauthorized access attempt.
@@ -33,7 +33,7 @@ if (php_sapi_name() != "cli") {
             $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             return $pdo;
         } catch (PDOException $e) {
-            // Log a detailed error message if connection fails.
+            // Log a detailed error message if the connection fails.
             log_message("FATAL ERROR: Database connection failed: " . $e->getMessage());
             die("Connection failed: " . $e->getMessage());
         }
@@ -42,7 +42,7 @@ if (php_sapi_name() != "cli") {
     // Function to log messages to a file.
     function log_message($message) {
         $log_file = "auto_return_log.txt";
-        // Get the current time in Thai timezone for the log.
+        // Set the timezone to Bangkok for log timestamps.
         date_default_timezone_set('Asia/Bangkok');
         $timestamp = date('Y-m-d H:i:s');
         $formatted_message = "[$timestamp] $message\n";
@@ -54,13 +54,15 @@ if (php_sapi_name() != "cli") {
     try {
         $pdo = connect_db();
 
-        // Get the current time in UTC, which is what the database uses.
+        // Get the current time in UTC, which matches the database's timezone.
         $current_utc_time = new DateTime('now', new DateTimeZone('UTC'));
         $current_utc_timestamp = $current_utc_time->format('Y-m-d H:i:s');
-
+        
+        // Log the current UTC time for debugging.
         log_message("INFO: Current UTC time is " . $current_utc_timestamp);
 
         // Find all lockers that are currently 'occupied' and whose 'end_time' has passed.
+        // The query compares two UTC timestamps, ensuring correct logic.
         $sql = "SELECT id, locker_number, end_time FROM lockers WHERE status = 'occupied' AND end_time <= :current_time";
         $stmt = $pdo->prepare($sql);
         $stmt->bindParam(':current_time', $current_utc_timestamp);
@@ -75,7 +77,7 @@ if (php_sapi_name() != "cli") {
                 $locker_number = $locker['locker_number'];
                 $locker_end_time = $locker['end_time'];
 
-                // Log the details of the expired locker.
+                // Log details of the expired locker for debugging.
                 log_message("INFO: Processing expired locker ID: " . $locker_id . ", locker_number: " . $locker_number . ", end_time: " . $locker_end_time);
 
                 // Update the locker's status to 'available'.
