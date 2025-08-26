@@ -1,41 +1,48 @@
-# Start from the base PHP-Apache image
+# Start from the base PHP-Apache image.
+# We are using version 8.1, which is a stable and widely supported version.
 FROM php:8.1-apache
 
-# Install PostgreSQL client libraries (libpq-dev)
-# This is necessary for pdo_pgsql extension to be built successfully.
-# It also includes cleaning up apt lists to keep the image size down.
+# Step 1: Install PostgreSQL client libraries (libpq-dev).
+# This is a critical step. The `pdo_pgsql` extension needs these libraries
+# to be built correctly. Without this, the `docker-php-ext-install` command will fail.
+# We use apt-get to update the package list and install the necessary package.
 RUN apt-get update && apt-get install -y \
     libpq-dev \
+    # Clean up the apt cache to reduce the final image size.
     && rm -rf /var/lib/apt/lists/*
 
-# Install PDO PostgreSQL extension for PHP
-# This is crucial for connecting to PostgreSQL databases from PHP.
+# Step 2: Install the PDO PostgreSQL extension for PHP.
+# This command builds and enables the actual PHP driver for PostgreSQL.
+# This resolves the "could not find driver" error.
 RUN docker-php-ext-install pdo_pgsql
 
-# Enable mod_rewrite for Apache. This is often needed for clean URLs in PHP apps.
+# Step 3: Enable Apache's mod_rewrite module.
+# This module is often necessary for pretty URLs and routing in web applications.
 RUN a2enmod rewrite
 
-# Copy your PHP application files into the container's web root.
-# All your project files (PHP scripts, Dockerfile itself, etc.) will be placed here.
+# Step 4: Copy all your application files into the container's web root directory.
+# This copies all files from your project folder into the /var/www/html directory inside the container.
 COPY . /var/www/html
 
-# Set ownership of all files in the web root to www-data user/group.
-# This ensures Apache (which runs as www-data) has proper read/write access to your application files.
+# Step 5: Set file ownership for the application files.
+# The Apache web server runs as the `www-data` user and group.
+# This command ensures that Apache has the necessary permissions to read and serve your files.
 RUN chown -R www-data:www-data /var/www/html
 
-# Set specific write permissions for the auto_return_log.txt file.
-# The `|| true` prevents the command from failing if the file doesn't exist yet.
-# `touch` creates the file if it doesn't exist.
-# `chmod 664` grants read/write permissions for the owner (www-data) and group (www-data),
-# and read-only for others. This should allow auto_return.php to write to the log.
+# Step 6: Set specific file permissions for the log file.
+# We need to ensure the `auto_return_log.txt` file is writable by the `www-data` user.
+# `chmod 775` sets permissions. The `|| true` prevents the build from failing if the file
+# doesn't exist yet. `touch` creates the file if it's missing. `chmod 664` sets the final
+# read/write permissions for the file itself.
 RUN chmod 775 /var/www/html/auto_return_log.txt || true \
     && touch /var/www/html/auto_return_log.txt \
     && chmod 664 /var/www/html/auto_return_log.txt
 
-# Expose port 80, which is the default port for HTTP traffic.
-# This tells Docker that the container listens on this port.
+# Expose port 80 to the outside world.
+# This tells Docker that the container will be listening for incoming traffic on this port.
 EXPOSE 80
 
-# Define the command to run when the container starts.
-# `apache2-foreground` runs Apache in the foreground, essential for Docker containers.
+# The final command to run when the container starts.
+# This runs the Apache web server in the foreground, which is a standard practice for
+# running services in Docker containers.
 CMD ["apache2-foreground"]
