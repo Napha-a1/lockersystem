@@ -1,15 +1,40 @@
 <?php
-session_start();
+// ในกรณีที่ External Cron Service ไม่ได้รัน session
+// หรือเพื่อหลีกเลี่ยง Header already sent error เมื่อถูกเรียกโดยตรง
+// session_start(); // คุณอาจจะต้องคอมเมนต์หรือลบบรรทัดนี้ออกไป หากไม่ได้ใช้ session ในสคริปต์นี้
+
 include 'connect.php'; // เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
 
-// กำหนดพาธสำหรับไฟล์ Log (สามารถใช้ไฟล์เดียวกับ book_process.php ได้)
-$logFile = __DIR__ . '/auto_return_log.txt'; // เปลี่ยนเป็นชื่อไฟล์ Log ที่เหมาะสม
+// กำหนดพาธสำหรับไฟล์ Log
+// ใช้ชื่อไฟล์แยกกันเพื่อติดตาม Log ของ Auto Return ได้ง่ายขึ้น
+$logFile = __DIR__ . '/auto_return_log.txt';
 
 // ฟังก์ชันสำหรับบันทึกข้อความลงในไฟล์ Log
 function writeAutoReturnLog($message, $logPath) {
     $timestamp = date('Y-m-d H:i:s');
     file_put_contents($logPath, "[{$timestamp}] {$message}\n", FILE_APPEND);
 }
+
+// ==========================================================
+// *** เพิ่มส่วนรักษาความปลอดภัยด้วย API Key (สำคัญมาก!) ***
+// ==========================================================
+// กำหนด API Key ลับของคุณ
+// คุณต้องเปลี่ยน 'YOUR_SUPER_SECRET_KEY_HERE' เป็นรหัสที่ซับซ้อนและคาดเดายาก
+// และอย่าเผยแพร่รหัสนี้
+define('AUTO_RETURN_API_KEY', 'JWIA2@AF1!kfkova');
+
+// ตรวจสอบ API Key ที่ส่งมาใน URL (GET parameter 'key')
+$apiKey = $_GET['key'] ?? null;
+
+if ($apiKey !== AUTO_RETURN_API_KEY) {
+    // หาก API Key ไม่ถูกต้อง ให้ปฏิเสธการเข้าถึง
+    writeAutoReturnLog("SECURITY ALERT: Unauthorized access attempt to auto_return.php. IP: " . ($_SERVER['REMOTE_ADDR'] ?? 'Unknown') . ", Provided Key: " . ($apiKey ?? 'None'), $logFile);
+    http_response_code(401); // ส่ง HTTP Status Code 401 Unauthorized
+    die("Unauthorized Access"); // หยุดการทำงานของสคริปต์
+}
+// ==========================================================
+// *** จบส่วนรักษาความปลอดภัย ***
+// ==========================================================
 
 writeAutoReturnLog("--- สคริปต์ auto_return.php เริ่มทำงาน ---", $logFile);
 
@@ -44,13 +69,9 @@ try {
                 if ($update_stmt->execute() && $update_stmt->rowCount() > 0) {
                     writeAutoReturnLog("INFO: Locker ID {$locker_id} (Number: {$locker_number}) status updated to 'available'.", $logFile);
 
-                    // บันทึก Log การคืน Locker ในตาราง bookings (ถ้ามีคอลัมน์สำหรับสถานะการคืน)
-                    // ตัวอย่าง: อัปเดตสถานะในตาราง bookings เป็น 'returned' หรือ 'completed'
-                    // $update_booking_status_sql = "UPDATE bookings SET status = 'returned' WHERE locker_id = :locker_id AND user_email = :user_email AND end_time <= NOW()";
-                    // $update_booking_status_stmt = $conn->prepare($update_booking_status_sql);
-                    // $update_booking_status_stmt->bindParam(':locker_id', $locker_id, PDO::PARAM_INT);
-                    // $update_booking_status_stmt->bindParam(':user_email', $user_email);
-                    // $update_booking_status_stmt->execute();
+                    // คุณสามารถเพิ่มโค้ดเพื่ออัปเดตสถานะในตาราง bookings
+                    // หรือส่งการแจ้งเตือนอื่นๆ ที่นี่
+                    // เช่น $update_booking_status_sql = "UPDATE bookings SET status = 'returned' WHERE ...";
 
                     $conn->commit();
                     writeAutoReturnLog("INFO: Transaction committed for Locker ID {$locker_id}.", $logFile);
@@ -75,7 +96,6 @@ try {
 
 writeAutoReturnLog("--- สคริปต์ auto_return.php ทำงานเสร็จสิ้น ---", $logFile);
 
-// คุณอาจไม่ต้องการให้มี Output ใดๆ ถ้าสคริปต์นี้ถูกเรียกโดย Cron Job
-// หรือคุณอาจส่งข้อความตอบกลับถ้าเรียกผ่านเว็บ
-// echo "Auto-return process completed.";
+// ส่งข้อความสำเร็จกลับไปให้ External Cron Service ทราบ
+echo "Auto-return process completed successfully.";
 ?>
