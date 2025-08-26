@@ -1,4 +1,5 @@
 <?php
+// check_locker_permission.php
 // ไฟล์นี้ใช้ตรวจสอบสิทธิ์การเปิดล็อกเกอร์
 session_start();
 include('connect.php'); // ใช้ไฟล์เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
@@ -45,8 +46,6 @@ try {
 
 } catch (PDOException $e) {
     error_log("SQL Error in check_locker_permission.php: " . $e->getMessage());
-    echo "ERROR: Database error occurred while checking permission.";
-    exit();
+    echo "ERROR: A database error occurred.";
 }
-// ไม่จำเป็นต้องปิดการเชื่อมต่อ PDO ด้วย $conn->close() เพราะ PDO จะจัดการเองเมื่อ script จบการทำงาน
 ?>
