@@ -1,101 +1,111 @@
 <?php
-// ในกรณีที่ External Cron Service ไม่ได้รัน session
-// หรือเพื่อหลีกเลี่ยง Header already sent error เมื่อถูกเรียกโดยตรง
-// session_start(); // คุณอาจจะต้องคอมเมนต์หรือลบบรรทัดนี้ออกไป หากไม่ได้ใช้ session ในสคริปต์นี้
 
-include 'connect.php'; // เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
+// Check if the script is being executed by a web server
+if (php_sapi_name() != "cli") {
+    // --- สคริปต์ auto_return.php เริ่มทำงาน ---
+    // This log entry confirms the script started via a web request.
+    log_message("--- auto_return.php script started via web request ---");
 
-// กำหนดพาธสำหรับไฟล์ Log
-// ใช้ชื่อไฟล์แยกกันเพื่อติดตาม Log ของ Auto Return ได้ง่ายขึ้น
-$logFile = __DIR__ . '/auto_return_log.txt';
+    // Check for the provided API key to prevent unauthorized access.
+    // Replace 'YOUR_API_KEY' with your actual key.
+    $api_key = isset($_GET['key']) ? $_GET['key'] : '';
+    $expected_key = 'JWIA2@AF1!kfkova'; // Your secret key for cron job
 
-// ฟังก์ชันสำหรับบันทึกข้อความลงในไฟล์ Log
-function writeAutoReturnLog($message, $logPath) {
-    $timestamp = date('Y-m-d H:i:s');
-    file_put_contents($logPath, "[{$timestamp}] {$message}\n", FILE_APPEND);
-}
+    if ($api_key !== $expected_key) {
+        // Log an unauthorized access attempt.
+        log_message("ERROR: Unauthorized access attempt with key: " . $api_key);
+        die("Unauthorized Access");
+    }
 
-// ==========================================================
-// *** เพิ่มส่วนรักษาความปลอดภัยด้วย API Key (สำคัญมาก!) ***
-// ==========================================================
-// กำหนด API Key ลับของคุณ
-// คุณต้องเปลี่ยน 'YOUR_SUPER_SECRET_KEY_HERE' เป็นรหัสที่ซับซ้อนและคาดเดายาก
-// และอย่าเผยแพร่รหัสนี้
-define('AUTO_RETURN_API_KEY', 'JWIA2@AF1!kfkova');
+    log_message("INFO: API key authenticated successfully.");
 
-// ตรวจสอบ API Key ที่ส่งมาใน URL (GET parameter 'key')
-$apiKey = $_GET['key'] ?? null;
+    // Function to connect to the PostgreSQL database.
+    function connect_db() {
+        $host = "dpg-cpt9kmds3k9n7n763vfg-a.singapore-postgres.render.com";
+        $port = "5432";
+        $dbname = "lockersystem";
+        $user = "lockersystem";
+        $password = "92nE19Vn9E33XFjO42F80u3WjVpW4eBf";
 
-if ($apiKey !== AUTO_RETURN_API_KEY) {
-    // หาก API Key ไม่ถูกต้อง ให้ปฏิเสธการเข้าถึง
-    writeAutoReturnLog("SECURITY ALERT: Unauthorized access attempt to auto_return.php. IP: " . ($_SERVER['REMOTE_ADDR'] ?? 'Unknown') . ", Provided Key: " . ($apiKey ?? 'None'), $logFile);
-    http_response_code(401); // ส่ง HTTP Status Code 401 Unauthorized
-    die("Unauthorized Access"); // หยุดการทำงานของสคริปต์
-}
-// ==========================================================
-// *** จบส่วนรักษาความปลอดภัย ***
-// ==========================================================
-
-writeAutoReturnLog("--- สคริปต์ auto_return.php เริ่มทำงาน ---", $logFile);
-
-try {
-    // ดึง Locker ที่หมดเวลาจองแล้ว
-    // ตรวจสอบว่า end_time น้อยกว่าหรือเท่ากับเวลาปัจจุบัน (NOW())
-    // และสถานะยังเป็น 'occupied' (ตัวพิมพ์เล็กทั้งหมด)
-    $stmt = $conn->prepare("SELECT id, locker_number, user_email FROM lockers WHERE end_time <= NOW() AND status = 'occupied'");
-    $stmt->execute();
-    $expired_lockers = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    if (empty($expired_lockers)) {
-        writeAutoReturnLog("INFO: No expired lockers found at this time.", $logFile);
-    } else {
-        foreach ($expired_lockers as $locker) {
-            $locker_id = $locker['id'];
-            $locker_number = $locker['locker_number'];
-            $user_email = $locker['user_email'];
-
-            writeAutoReturnLog("INFO: Processing expired locker ID: {$locker_id}, Number: {$locker_number}, User: {$user_email}", $logFile);
-
-            // เริ่มต้น Transaction สำหรับแต่ละ Locker เพื่อความปลอดภัย
-            $conn->beginTransaction();
-
-            try {
-                // อัปเดตสถานะ Locker กลับเป็น 'available'
-                // ใช้ 'available' (ตัวพิมพ์เล็กทั้งหมด) เพื่อให้ตรงกับ Check Constraint
-                $update_locker_sql = "UPDATE lockers SET status = 'available', user_email = NULL, start_time = NULL, end_time = NULL WHERE id = :locker_id AND status = 'occupied'";
-                $update_stmt = $conn->prepare($update_locker_sql);
-                $update_stmt->bindParam(':locker_id', $locker_id, PDO::PARAM_INT);
-
-                if ($update_stmt->execute() && $update_stmt->rowCount() > 0) {
-                    writeAutoReturnLog("INFO: Locker ID {$locker_id} (Number: {$locker_number}) status updated to 'available'.", $logFile);
-
-                    // คุณสามารถเพิ่มโค้ดเพื่ออัปเดตสถานะในตาราง bookings
-                    // หรือส่งการแจ้งเตือนอื่นๆ ที่นี่
-                    // เช่น $update_booking_status_sql = "UPDATE bookings SET status = 'returned' WHERE ...";
-
-                    $conn->commit();
-                    writeAutoReturnLog("INFO: Transaction committed for Locker ID {$locker_id}.", $logFile);
-                } else {
-                    writeAutoReturnLog("WARNING: Failed to update Locker ID {$locker_id} (Number: {$locker_number}) status. May be already updated or status changed.", $logFile);
-                    $conn->rollBack();
-                }
-            } catch (Exception $e) {
-                if ($conn->inTransaction()) {
-                    $conn->rollBack();
-                }
-                writeAutoReturnLog("ERROR: Exception during processing Locker ID {$locker_id}: " . $e->getMessage(), $logFile);
-                error_log("Auto-return Exception: " . $e->getMessage());
-            }
+        try {
+            // Attempt to create a new PDO instance with PostgreSQL driver.
+            $pdo = new PDO("pgsql:host=$host;port=$port;dbname=$dbname", $user, $password);
+            $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            return $pdo;
+        } catch (PDOException $e) {
+            // Log a detailed error message if connection fails.
+            log_message("FATAL ERROR: Database connection failed: " . $e->getMessage());
+            die("Connection failed: " . $e->getMessage());
         }
     }
 
-} catch (PDOException $e) {
-    writeAutoReturnLog("FATAL ERROR: PDOException in auto_return.php: " . $e->getMessage(), $logFile);
-    error_log("FATAL PDO Error in auto_return.php: " . $e->getMessage());
+    // Function to log messages to a file.
+    function log_message($message) {
+        $log_file = "auto_return_log.txt";
+        // Get the current time in Thai timezone for the log.
+        date_default_timezone_set('Asia/Bangkok');
+        $timestamp = date('Y-m-d H:i:s');
+        $formatted_message = "[$timestamp] $message\n";
+        // Append the message to the log file.
+        file_put_contents($log_file, $formatted_message, FILE_APPEND);
+    }
+
+    // Main logic for auto-returning lockers.
+    try {
+        $pdo = connect_db();
+
+        // Get the current time in UTC, which is what the database uses.
+        $current_utc_time = new DateTime('now', new DateTimeZone('UTC'));
+        $current_utc_timestamp = $current_utc_time->format('Y-m-d H:i:s');
+
+        log_message("INFO: Current UTC time is " . $current_utc_timestamp);
+
+        // Find all lockers that are currently 'occupied' and whose 'end_time' has passed.
+        $sql = "SELECT id, locker_number, end_time FROM lockers WHERE status = 'occupied' AND end_time <= :current_time";
+        $stmt = $pdo->prepare($sql);
+        $stmt->bindParam(':current_time', $current_utc_timestamp);
+        $stmt->execute();
+        $expired_lockers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Check if any expired lockers were found.
+        if (count($expired_lockers) > 0) {
+            log_message("INFO: Found " . count($expired_lockers) . " expired locker(s).");
+            foreach ($expired_lockers as $locker) {
+                $locker_id = $locker['id'];
+                $locker_number = $locker['locker_number'];
+                $locker_end_time = $locker['end_time'];
+
+                // Log the details of the expired locker.
+                log_message("INFO: Processing expired locker ID: " . $locker_id . ", locker_number: " . $locker_number . ", end_time: " . $locker_end_time);
+
+                // Update the locker's status to 'available'.
+                $update_sql = "UPDATE lockers SET status = 'available', user_email = NULL, start_time = NULL, end_time = NULL WHERE id = :id";
+                $update_stmt = $pdo->prepare($update_sql);
+                $update_stmt->bindParam(':id', $locker_id);
+
+                if ($update_stmt->execute()) {
+                    log_message("INFO: Successfully returned locker ID: " . $locker_id . " to 'available'.");
+                } else {
+                    log_message("ERROR: Failed to update locker ID: " . $locker_id);
+                }
+            }
+        } else {
+            // Log if no expired lockers were found.
+            log_message("INFO: No expired lockers found at this time.");
+        }
+
+        log_message("--- auto_return.php script finished ---");
+        echo "Auto-return process completed successfully.";
+
+    } catch (PDOException $e) {
+        // Catch and log any PDO exceptions that occur during the process.
+        log_message("FATAL ERROR: An error occurred during the auto-return process: " . $e->getMessage());
+        echo "An error occurred.";
+    }
+
+} else {
+    // This message is for command-line execution (not for cron jobs)
+    echo "This script is intended to be run via a web request with a valid key.\n";
 }
 
-writeAutoReturnLog("--- สคริปต์ auto_return.php ทำงานเสร็จสิ้น ---", $logFile);
-
-// ส่งข้อความสำเร็จกลับไปให้ External Cron Service ทราบ
-echo "Auto-return process completed successfully.";
 ?>
