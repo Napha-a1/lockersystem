@@ -1,87 +1,88 @@
 <?php
-header('Content-Type: text/plain'); // Set Content-Type to plain text for response
 session_start();
-include 'connect.php'; // Connect to PostgreSQL database using PDO
+include 'connect.php'; 
 
-// Check if necessary parameters are provided
-if (isset($_GET['locker_number']) && isset($_GET['user_email']) && isset($_GET['action'])) {
-    $lockerNumber = $_GET['locker_number'];
-    $userEmail = $_GET['user_email'];
-    $action = $_GET['action']; // 'open' or 'close'
+header('Content-Type: application/json');
 
-    // Check session permissions
-    // The logged-in user must be the same user attempting to control the locker
-    if (!isset($_SESSION['user_email']) || $_SESSION['user_email'] !== $userEmail) {
-        echo "ERROR: Permission Denied. User session mismatch.";
-        exit();
+function sendJsonResponse($status, $message, $data = []) {
+    echo json_encode(['status' => $status, 'message' => $message, 'data' => $data]);
+    exit();
+}
+
+if (!isset($_SESSION['user_email'])) {
+    sendJsonResponse('error', 'Authentication failed: User not logged in.');
+}
+
+$userEmail = $_SESSION['user_email'];
+$lockerNumber = $_POST['locker_number'] ?? null;
+$action = $_POST['action'] ?? null;
+
+if (empty($lockerNumber) || empty($action)) {
+    sendJsonResponse('error', 'Missing required parameters (locker_number or action).');
+}
+
+if ($action !== 'open' && $action !== 'close') {
+    sendJsonResponse('error', 'Invalid action. Action must be "open" or "close".');
+}
+
+try {
+    $stmt = $conn->prepare("
+        SELECT id, esp32_ip_address, status
+        FROM lockers
+        WHERE locker_number = :locker_number
+          AND user_email = :user_email
+          AND status = 'occupied'
+    ");
+    $stmt->bindParam(':locker_number', $lockerNumber);
+    $stmt->bindParam(':user_email', $userEmail);
+    $stmt->execute();
+    $locker = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$locker) {
+        sendJsonResponse('error', 'Permission denied. You do not own this locker or it is not occupied.');
     }
 
-    try {
-        // Prevent SQL Injection using Prepared Statement to retrieve locker data
-        // NOW INCLUDING 'esp32_ip_address' from the database
-        $sql = "SELECT status, user_email, blynk_virtual_pin, esp32_ip_address FROM lockers WHERE locker_number = :locker_number";
-        $stmt = $conn->prepare($sql);
-        $stmt->bindParam(':locker_number', $lockerNumber);
-        $stmt->execute();
-        $locker_data = $stmt->fetch(PDO::FETCH_ASSOC);
+    $esp32_ip = $locker['esp32_ip_address'];
+    $esp32_url = "http://{$esp32_ip}/control?action={$action}";
+    
+    // ใช้ cURL เพื่อส่งคำขอ HTTP GET ไปยัง ESP32
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $esp32_url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 5);
 
-        if ($locker_data) {
-            $status = $locker_data['status'];
-            $bookedBy = $locker_data['user_email'];
-            $esp32GpioPin = $locker_data['blynk_virtual_pin']; // Using blynk_virtual_pin as the GPIO pin on ESP32
-            $esp32IpAddress = $locker_data['esp32_ip_address']; // Get ESP32 IP Address from DB
+    $response = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
 
-            // Validate if esp32_ip_address is set
-            if (empty($esp32IpAddress)) {
-                echo "ERROR: ESP32 IP Address not configured for locker " . htmlspecialchars($lockerNumber);
-                exit();
-            }
-
-            // Check conditions: locker must be occupied by this user and in 'occupied' status
-            if ($status == 'occupied' && $bookedBy == $userEmail) {
-                // Determine the value to send to ESP32 based on low-active relay logic
-                // 'open' means relay active (LOW = 0)
-                // 'close' means relay inactive (HIGH = 1)
-                $commandValue = ($action === 'open') ? 0 : 1; 
-                
-                // Construct the URL for the ESP32 Web Server using the IP from the database
-                $esp32Endpoint = "http://{$esp32IpAddress}/control?pin={$esp32GpioPin}&value={$commandValue}";
-
-                // Send command to ESP32 Web Server using cURL
-                $ch = curl_init();
-                curl_setopt($ch, CURLOPT_URL, $esp32Endpoint);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); // Do not output response directly
-                curl_setopt($ch, CURLOPT_TIMEOUT, 5); // Set a timeout of 5 seconds
-                $esp32_response = curl_exec($ch);
-                $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE); // Get HTTP response code
-                curl_close($ch);
-
-                // Check if command was sent successfully
-                if ($esp32_response !== false && $http_code >= 200 && $http_code < 300) {
-                    if ($action === 'open') {
-                        echo "OPEN (Command sent to ESP32)";
-                    } else {
-                        echo "CLOSED (Command sent to ESP32)";
-                    }
-                } else {
-                    echo "ERROR: Failed to send command to ESP32. Check network connection or ESP32 Web Server. (HTTP Code: {$http_code}, Response: {$esp32_response})";
-                }
-            } else {
-                // If conditions are not met (locker not booked by this user or status is incorrect)
-                echo "ERROR: Locker is not occupied by this user or status is incorrect.";
-            }
-        } else {
-            // Locker not found with the specified number
-            echo "ERROR: Locker not found.";
+    $controlSuccess = false;
+    if ($http_code === 200) {
+        $controlSuccess = true;
+        error_log("Locker {$lockerNumber} control command sent successfully to {$esp32_ip}.");
+    } else {
+        error_log("Failed to send command to ESP32 at {$esp32_ip}. HTTP Code: {$http_code}");
+    }
+    
+    if ($controlSuccess) {
+        if ($action === 'close') {
+            $update_stmt = $conn->prepare("
+                UPDATE lockers 
+                SET status = 'available', 
+                    user_email = NULL, 
+                    end_time = NOW() 
+                WHERE id = :id
+            ");
+            $update_stmt->bindParam(':id', $locker['id']);
+            $update_stmt->execute();
         }
 
-    } catch (PDOException $e) {
-        // Log SQL errors
-        error_log("SQL Error in api_locker_control.php: " . $e->getMessage());
-        echo "ERROR: Database error occurred while controlling locker.";
+        sendJsonResponse('success', 'Locker control command sent successfully.');
+    } else {
+        sendJsonResponse('error', 'Failed to send command to locker hardware.');
     }
-} else {
-    echo "ERROR: Missing parameters. Please provide locker_number, user_email, and action.";
+
+} catch (PDOException $e) {
+    error_log("Database Error in api_control.php: " . $e->getMessage());
+    sendJsonResponse('error', 'An internal server error occurred.');
 }
-// PDO connection is automatically closed when the script finishes
 ?>
