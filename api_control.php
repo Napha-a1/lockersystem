@@ -1,38 +1,38 @@
 <?php
 session_start();
-include 'connect.php'; // เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
+include 'connect.php'; // Connect to the PDO database for PostgreSQL
 
-// กำหนด header ให้เป็น JSON response
+// Set the header to JSON response
 header('Content-Type: application/json');
 
-// ฟังก์ชันสำหรับส่ง response กลับไปในรูปแบบ JSON
+// Function to send a JSON response
 function sendJsonResponse($status, $message, $data = []) {
     echo json_encode(['status' => $status, 'message' => $message, 'data' => $data]);
     exit();
 }
 
-// ตรวจสอบว่าผู้ใช้ล็อกอินอยู่หรือไม่
+// Check if the user is logged in
 if (!isset($_SESSION['user_email'])) {
     sendJsonResponse('error', 'Authentication failed: User not logged in.');
 }
 
-// รับค่าจาก POST
+// Get values from POST
 $userEmail = $_SESSION['user_email'];
 $lockerNumber = $_POST['locker_number'] ?? null;
 $action = $_POST['action'] ?? null; // 'open' or 'close'
 
-// ตรวจสอบข้อมูลที่จำเป็น
+// Check for required parameters
 if (empty($lockerNumber) || empty($action)) {
     sendJsonResponse('error', 'Missing required parameters (locker_number or action).');
 }
 
-// ตรวจสอบว่า action ที่ส่งมาถูกต้องหรือไม่
+// Check if the action is valid
 if ($action !== 'open' && $action !== 'close') {
     sendJsonResponse('error', 'Invalid action. Action must be "open" or "close".');
 }
 
 try {
-    // ดึงข้อมูลล็อกเกอร์จากฐานข้อมูล พร้อมตรวจสอบสิทธิ์
+    // Retrieve locker information from the database and check permissions
     $stmt = $conn->prepare("
         SELECT id, esp32_ip_address, status
         FROM lockers
@@ -52,14 +52,28 @@ try {
     $esp32_ip = $locker['esp32_ip_address'];
     $locker_status = $locker['status'];
 
-    // Placeholder: This is where you would send a command to the ESP32
-    error_log("Locker {$lockerNumber} control request: User {$userEmail} wants to {$action}.");
+    // This is the new part: Sending the command to the ESP32
+    $esp32_url = "http://{$esp32_ip}/control?action={$action}";
     
-    // Assume the control command was successful for demonstration purposes
-    $controlSuccess = true;
+    // Use cURL to send an HTTP GET request to the ESP32
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $esp32_url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); // Set to return the response as a string
+    curl_setopt($ch, CURLOPT_TIMEOUT, 5); // Set a 5-second timeout
 
+    $response = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $controlSuccess = false;
+    if ($http_code === 200) { // Check for a successful HTTP 200 (OK)
+        $controlSuccess = true;
+        error_log("Locker {$lockerNumber} control command sent successfully to {$esp32_ip}.");
+    } else {
+        error_log("Failed to send command to ESP32 at {$esp32_ip}. HTTP Code: {$http_code}");
+    }
+    
     if ($controlSuccess) {
-        // If action is 'close', update the locker's status to available
         if ($action === 'close') {
             $update_stmt = $conn->prepare("
                 UPDATE lockers 
@@ -78,7 +92,6 @@ try {
     }
 
 } catch (PDOException $e) {
-    // Log the database error for debugging and send a generic message to the user
     error_log("Database Error in api_control.php: " . $e->getMessage());
     sendJsonResponse('error', 'An internal server error occurred.');
 }
