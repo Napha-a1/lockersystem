@@ -35,7 +35,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         if ($row) { // ถ้าพบผู้ใช้
             if ($role === "admin") {
-                // ตรวจสอบรหัสผ่านสำหรับแอดมิน (สมมติว่าไม่ได้ hash)
+                // ตรวจสอบรหัสผ่านสำหรับแอดมิน (แบบไม่ต้อง hash)
                 if ($password === $row['password']) {
                     $_SESSION['admin_username'] = $row['username'];
                     header('Location: locker_status.php');
