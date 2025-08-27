@@ -1,6 +1,6 @@
 <?php
 // control_locker.php
-session_start();
+
 include 'connect.php'; // ตรวจสอบว่ามีไฟล์ connect.php ที่เชื่อมต่อฐานข้อมูลอยู่หรือไม่
 
 header('Content-Type: application/json');
@@ -11,12 +11,9 @@ function sendJsonResponse($status, $message, $data = []) {
     exit();
 }
 
-// ตรวจสอบว่าผู้ใช้ล็อกอินหรือไม่
-if (!isset($_SESSION['user_email'])) {
-    sendJsonResponse('error', 'Authentication failed: User not logged in.');
-}
+// โค้ดสำหรับ ESP32 ไม่จำเป็นต้องมีการตรวจสอบ Session
+// หากคุณต้องการเพิ่มความปลอดภัย สามารถใช้ Secret Key ในการตรวจสอบแทนได้
 
-$userEmail = $_SESSION['user_email'];
 $lockerNumber = $_POST['locker_number'] ?? null;
 $action = $_POST['action'] ?? null;
 
@@ -28,6 +25,15 @@ if (empty($lockerNumber) || empty($action)) {
 // ตรวจสอบว่า action ถูกต้อง
 if ($action !== 'open' && $action !== 'close') {
     sendJsonResponse('error', 'Invalid action. Action must be "open" or "close".');
+}
+
+// ในการใช้งานจริงกับ ESP32 คุณจะต้องส่ง user_email มาด้วย
+// เพื่อให้สามารถอัปเดตสถานะของล็อกเกอร์ได้ถูกต้อง
+$userEmail = $_POST['user_email'] ?? null;
+
+// ตรวจสอบพารามิเตอร์ user_email เพิ่มเติม
+if (empty($userEmail)) {
+    sendJsonResponse('error', 'Missing required parameter (user_email).');
 }
 
 try {
