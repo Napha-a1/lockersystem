@@ -124,29 +124,20 @@ $blynk_status = true; // Assume online for now
                             <?php if (!$is_expired && $blynk_status): ?>
                                 <div class="mt-4 flex flex-col space-y-2">
                                     <!-- ปุ่มเปิดล็อคเกอร์ -->
-                                    <form action="control_locker.php" method="POST" class="inline-block" onsubmit="return confirm('คุณต้องการเปิดล็อกเกอร์ใช่หรือไม่?');">
-                                        <input type="hidden" name="locker_number" value="<?= htmlspecialchars($locker['locker_number']) ?>">
-                                        <input type="hidden" name="command" value="open">
-                                        <button type="submit" class="w-full bg-blue-500 text-white font-bold py-2 px-4 rounded-full hover:bg-blue-600 transition-colors flex items-center justify-center">
-                                            <i class="fas fa-door-open mr-2"></i> เปิดล็อกเกอร์
-                                        </button>
-                                    </form>
+                                    <button onclick="controlLocker(<?= htmlspecialchars($locker['locker_number']) ?>, 'open')"
+                                        class="w-full bg-blue-500 text-white font-bold py-2 px-4 rounded-full hover:bg-blue-600 transition-colors flex items-center justify-center">
+                                        <i class="fas fa-door-open mr-2"></i> เปิดล็อกเกอร์
+                                    </button>
                                     <!-- ปุ่มปิดล็อกเกอร์ -->
-                                    <form action="control_locker.php" method="POST" class="inline-block" onsubmit="return confirm('คุณต้องการปิดล็อกเกอร์ใช่หรือไม่?');">
-                                        <input type="hidden" name="locker_number" value="<?= htmlspecialchars($locker['locker_number']) ?>">
-                                        <input type="hidden" name="command" value="close">
-                                        <button type="submit" class="w-full bg-gray-500 text-white font-bold py-2 px-4 rounded-full hover:bg-gray-600 transition-colors flex items-center justify-center">
-                                            <i class="fas fa-door-closed mr-2"></i> ปิดล็อกเกอร์
-                                        </button>
-                                    </form>
+                                    <button onclick="controlLocker(<?= htmlspecialchars($locker['locker_number']) ?>, 'close')"
+                                        class="w-full bg-gray-500 text-white font-bold py-2 px-4 rounded-full hover:bg-gray-600 transition-colors flex items-center justify-center">
+                                        <i class="fas fa-door-closed mr-2"></i> ปิดล็อกเกอร์
+                                    </button>
                                     <!-- ปุ่มยกเลิกการจอง -->
-                                    <form action="control_locker.php" method="POST" class="inline-block" onsubmit="return confirm('คุณต้องการยกเลิกการจองล็อคเกอร์นี้ใช่หรือไม่?');">
-                                        <input type="hidden" name="locker_number" value="<?= htmlspecialchars($locker['locker_number']) ?>">
-                                        <input type="hidden" name="command" value="cancel">
-                                        <button type="submit" class="w-full bg-red-500 text-white font-bold py-2 px-4 rounded-full hover:bg-red-600 transition-colors flex items-center justify-center">
-                                            <i class="fas fa-times-circle mr-2"></i> ยกเลิกการจอง
-                                        </button>
-                                    </form>
+                                    <button onclick="controlLocker(<?= htmlspecialchars($locker['locker_number']) ?>, 'cancel')"
+                                        class="w-full bg-red-500 text-white font-bold py-2 px-4 rounded-full hover:bg-red-600 transition-colors flex items-center justify-center">
+                                        <i class="fas fa-times-circle mr-2"></i> ยกเลิกการจอง
+                                    </button>
                                 </div>
                             <?php elseif ($is_expired): ?>
                                 <div class="mt-4 text-center text-red-600 font-semibold">
@@ -176,6 +167,46 @@ $blynk_status = true; // Assume online for now
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/js/all.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function controlLocker(lockerNumber, action) {
+            // แสดงข้อความยืนยันก่อนส่งคำขอ
+            let confirmMessage = '';
+            if (action === 'open') {
+                confirmMessage = 'คุณต้องการเปิดล็อกเกอร์ใช่หรือไม่?';
+            } else if (action === 'close') {
+                confirmMessage = 'คุณต้องการปิดล็อกเกอร์ใช่หรือไม่?';
+            } else if (action === 'cancel') {
+                confirmMessage = 'คุณต้องการยกเลิกการจองล็อกเกอร์นี้ใช่หรือไม่?';
+            }
+
+            if (!confirm(confirmMessage)) {
+                return; // ถ้าผู้ใช้กด Cancel
+            }
+
+            const data = new URLSearchParams();
+            data.append('locker_number', lockerNumber);
+            data.append('action', action);
+
+            fetch('api_control.php', {
+                method: 'POST',
+                body: data
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.status === 'success') {
+                    // ถ้าสำเร็จ ให้แสดงข้อความและรีโหลดหน้า
+                    alert('สำเร็จ: ' + result.message);
+                    window.location.reload(); // รีโหลดหน้าเพื่อแสดงสถานะล่าสุด
+                } else {
+                    // ถ้าเกิดข้อผิดพลาด ให้แสดงข้อความ
+                    alert('เกิดข้อผิดพลาด: ' + result.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('เกิดข้อผิดพลาดในการเชื่อมต่อ: ไม่สามารถส่งคำสั่งไปยังล็อกเกอร์ได้');
+            });
+        }
+    </script>
 </body>
 </html>
