@@ -25,8 +25,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             if ($stmt_check->fetch(PDO::FETCH_ASSOC)) { 
                 $error = "อีเมลนี้ถูกใช้แล้ว";
             } else {
-                // บันทึกรหัสผ่านแบบ Plain text (ไม่แนะนำสำหรับ Production)
-                $stmt_insert = $conn->prepare("INSERT INTO locker_users (fullname, email, password, role) VALUES (:fullname, :email, :password, 'user')");
+                // บันทึกรหัสผ่านแบบ Plain text
+                $stmt_insert = $conn->prepare("INSERT INTO locker_users (fullname, email, password, role, created_at) VALUES (:fullname, :email, :password, 'user', NOW())");
                 $stmt_insert->bindParam(':fullname', $fullname);
                 $stmt_insert->bindParam(':email', $email);
                 $stmt_insert->bindParam(':password', $password); // บันทึกรหัสผ่านแบบ Plain text
