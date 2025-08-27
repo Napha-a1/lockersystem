@@ -12,14 +12,13 @@ function sendJsonResponse($status, $message, $data = []) {
 }
 
 // รับค่าจาก POST
-$lockerId = $_POST['locker_id'] ?? null;
 $lockerNumber = $_POST['locker_number'] ?? null;
 $command = $_POST['command'] ?? null; // 'on' or 'off'
 $esp32_ip = $_POST['esp32_ip'] ?? null; // รับ IP Address มาจากหน้า index.php
 
 // ตรวจสอบข้อมูลที่จำเป็น
-if (empty($lockerId) || empty($lockerNumber) || empty($command) || empty($esp32_ip)) {
-    sendJsonResponse('ERROR', 'Missing required parameters (locker_id, locker_number, command, or esp32_ip).');
+if (empty($lockerNumber) || empty($command) || empty($esp32_ip)) {
+    sendJsonResponse('ERROR', 'Missing required parameters (locker_number, command, or esp32_ip).');
 }
 
 // ตรวจสอบว่า command ที่ส่งมาถูกต้องหรือไม่
@@ -55,32 +54,8 @@ try {
     } elseif (trim($response) !== 'OK') { // ตรวจสอบการตอบกลับจาก ESP32 (สมมติว่า ESP32 ตอบ 'OK')
         sendJsonResponse('ERROR', 'Unexpected ESP32 response: ' . $response);
     } else {
-        // อัปเดตสถานะในฐานข้อมูลหลังจากส่งคำสั่งสำเร็จ
-        include 'connect.php'; // เชื่อมต่อฐานข้อมูลอีกครั้งเพื่ออัปเดตสถานะ
-
-        // กำหนดสถานะใหม่และข้อมูลผู้ใช้/เวลาให้เป็น NULL เมื่อปิด
-        $new_status = ($command === 'on') ? 'occupied' : 'available'; // 'occupied' หรือ 'available' (ตัวพิมพ์เล็ก)
-        $user_email_db = ($command === 'on') ? ($_SESSION['user_email'] ?? 'system') : NULL; // ผู้ที่สั่งเปิด, หรือ NULL ถ้าปิด
-        $start_time_db = ($command === 'on') ? date('Y-m-d H:i:s') : NULL;
-        $end_time_db = ($command === 'on') ? date('Y-m-d H:i:s', strtotime('+2 hours')) : NULL; // ตัวอย่าง: เปิด 2 ชั่วโมง
-
-        $update_sql = "
-            UPDATE lockers 
-            SET status = :new_status, 
-                user_email = :user_email, 
-                start_time = :start_time, 
-                end_time = :end_time 
-            WHERE id = :locker_id
-        ";
-        $stmt_update = $conn->prepare($update_sql);
-        $stmt_update->bindParam(':new_status', $new_status);
-        $stmt_update->bindParam(':user_email', $user_email_db);
-        $stmt_update->bindParam(':start_time', $start_time_db);
-        $stmt_update->bindParam(':end_time', $end_time_db);
-        $stmt_update->bindParam(':locker_id', $lockerId, PDO::PARAM_INT);
-        $stmt_update->execute();
-
-        sendJsonResponse('SUCCESS', 'Command "' . $command . '" sent to Locker #' . $lockerNumber . ' successfully and status updated in DB.');
+        // *** ไม่มีส่วนการอัปเดตฐานข้อมูลสำหรับ Locker 1 ที่นี่แล้ว ***
+        sendJsonResponse('SUCCESS', 'Command "' . $command . '" sent to Locker #' . $lockerNumber . ' successfully.');
     }
 
 } catch (Exception $e) {
