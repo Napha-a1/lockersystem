@@ -1,5 +1,4 @@
 <?php
-// check_locker_permission.php
 // ไฟล์นี้ใช้ตรวจสอบสิทธิ์การเปิดล็อกเกอร์
 session_start();
 include('connect.php'); // ใช้ไฟล์เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
@@ -45,7 +44,8 @@ try {
     }
 
 } catch (PDOException $e) {
-    error_log("SQL Error in check_locker_permission.php: " . $e->getMessage());
-    echo "ERROR: A database error occurred.";
+    error_log("SQL Error in check_locker_permission.php: " . $e->getMessage()); // บันทึก error
+    echo "ERROR: Database query failed. Please try again later.";
+    exit();
 }
 ?>
