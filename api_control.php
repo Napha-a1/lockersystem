@@ -1,38 +1,36 @@
 <?php
 session_start();
-include 'connect.php'; // Connect to the PDO database for PostgreSQL
+include 'connect.php'; // ตรวจสอบว่ามีไฟล์ connect.php ที่เชื่อมต่อฐานข้อมูลอยู่หรือไม่
 
-// Set the header to JSON response
 header('Content-Type: application/json');
 
-// Function to send a JSON response
+// ฟังก์ชันสำหรับส่ง JSON response
 function sendJsonResponse($status, $message, $data = []) {
     echo json_encode(['status' => $status, 'message' => $message, 'data' => $data]);
     exit();
 }
 
-// Check if the user is logged in
+// ตรวจสอบว่าผู้ใช้ล็อกอินหรือไม่ (ถ้าจำเป็น)
 if (!isset($_SESSION['user_email'])) {
     sendJsonResponse('error', 'Authentication failed: User not logged in.');
 }
 
-// Get values from POST
 $userEmail = $_SESSION['user_email'];
 $lockerNumber = $_POST['locker_number'] ?? null;
-$action = $_POST['action'] ?? null; // 'open' or 'close'
+$action = $_POST['action'] ?? null;
 
-// Check for required parameters
+// ตรวจสอบพารามิเตอร์ที่จำเป็น
 if (empty($lockerNumber) || empty($action)) {
     sendJsonResponse('error', 'Missing required parameters (locker_number or action).');
 }
 
-// Check if the action is valid
+// ตรวจสอบว่า action ถูกต้อง
 if ($action !== 'open' && $action !== 'close') {
     sendJsonResponse('error', 'Invalid action. Action must be "open" or "close".');
 }
 
 try {
-    // Retrieve locker information from the database and check permissions
+    // ดึงข้อมูลล็อกเกอร์จากฐานข้อมูลเพื่อตรวจสอบสิทธิ์
     $stmt = $conn->prepare("
         SELECT id, esp32_ip_address, status
         FROM lockers
@@ -50,23 +48,20 @@ try {
     }
 
     $esp32_ip = $locker['esp32_ip_address'];
-    $locker_status = $locker['status'];
-
-    // This is the new part: Sending the command to the ESP32
     $esp32_url = "http://{$esp32_ip}/control?action={$action}";
     
-    // Use cURL to send an HTTP GET request to the ESP32
+    // ใช้ cURL เพื่อส่งคำขอ HTTP GET ไปยัง ESP32
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $esp32_url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); // Set to return the response as a string
-    curl_setopt($ch, CURLOPT_TIMEOUT, 5); // Set a 5-second timeout
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 5); // ตั้งค่า timeout 5 วินาที
 
     $response = curl_exec($ch);
     $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
     $controlSuccess = false;
-    if ($http_code === 200) { // Check for a successful HTTP 200 (OK)
+    if ($http_code === 200) {
         $controlSuccess = true;
         error_log("Locker {$lockerNumber} control command sent successfully to {$esp32_ip}.");
     } else {
