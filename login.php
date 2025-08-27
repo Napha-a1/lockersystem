@@ -11,16 +11,14 @@ $success = $_GET['success'] ?? ''; // สำหรับแสดงข้อค
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
-    $role     = $_POST['role'] ?? 'user'; // default user
+    $role = $_POST['role'] ?? 'user'; // default user
 
     $sql = "";
     if ($role === "admin") {
-        // ล็อกอินแอดมินด้วย username
-        // ตรวจสอบกับรหัสผ่านที่ถูก hash แล้ว
+        // ล็อกอินแอดมินด้วย username และใช้รหัสผ่านแบบข้อความธรรมดา
         $sql = "SELECT * FROM admins WHERE username = :username";
     } else {
-        // ล็อกอินผู้ใช้ด้วย email
-        // ตรวจสอบกับรหัสผ่านที่ถูก hash แล้ว
+        // ล็อกอินผู้ใช้ด้วย email และใช้รหัสผ่านที่ถูก hash แล้ว
         $sql = "SELECT * FROM locker_users WHERE email = :username";
     }
 
@@ -38,24 +36,28 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if ($row) { // ถ้าพบผู้ใช้/แอดมิน
-            // ใช้ password_verify() เพื่อตรวจสอบรหัสผ่านที่ถูก hash
-            // นี่คือส่วนที่ปรับปรุงเพื่อความปลอดภัย
-            if (password_verify($password, $row['password'])) {
-                if ($role === "admin") {
+            if ($role === "admin") {
+                // ตรวจสอบรหัสผ่านสำหรับแอดมิน (เปรียบเทียบตรงๆ)
+                if ($password === $row['password']) {
                     $_SESSION['admin_username'] = $row['username'];
                     header("Location: admin_dashboard.php");
+                    exit();
                 } else {
+                    $error = "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง";
+                }
+            } else {
+                // ตรวจสอบรหัสผ่านสำหรับผู้ใช้ (ใช้ password_verify กับ password_hash)
+                if (password_verify($password, $row['password_hash'])) {
                     $_SESSION['user_email'] = $row['email'];
                     header("Location: index.php");
+                    exit();
+                } else {
+                    $error = "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง";
                 }
-                exit();
-            } else {
-                $error = "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง";
             }
         } else {
             $error = "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง";
         }
-
     } catch (PDOException $e) {
         error_log("Login Error: " . $e->getMessage()); // บันทึกข้อผิดพลาดใน log
         $error = "เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล กรุณาลองใหม่ภายหลัง";
@@ -154,4 +156,3 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
-
