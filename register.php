@@ -1,5 +1,4 @@
 <?php
-// เชื่อมต่อฐานข้อมูล (ใช้ connect.php เพื่อความสอดคล้อง)
 include 'connect.php';
 
 $error = "";
@@ -15,26 +14,22 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $error = "กรุณากรอกข้อมูลให้ครบถ้วน";
     } elseif ($password !== $confirm_password) {
         $error = "รหัสผ่านไม่ตรงกัน";
-    } elseif (strlen($password) < 6) { // เพิ่มการตรวจสอบความยาวรหัสผ่าน
+    } elseif (strlen($password) < 6) { 
         $error = "รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร";
     } else {
         try {
-            // ตรวจสอบอีเมลซ้ำ
             $stmt_check = $conn->prepare("SELECT id FROM locker_users WHERE email = :email");
             $stmt_check->bindParam(':email', $email);
             $stmt_check->execute();
 
-            if ($stmt_check->fetch(PDO::FETCH_ASSOC)) { // ถ้าพบข้อมูล แสดงว่าอีเมลนี้ถูกใช้แล้ว
+            if ($stmt_check->fetch(PDO::FETCH_ASSOC)) { 
                 $error = "อีเมลนี้ถูกใช้แล้ว";
             } else {
-                // แฮชรหัสผ่าน
-                $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-
-                // เพิ่มผู้ใช้ใหม่
+                // บันทึกรหัสผ่านแบบ Plain text (ไม่แนะนำสำหรับ Production)
                 $stmt_insert = $conn->prepare("INSERT INTO locker_users (fullname, email, password, role) VALUES (:fullname, :email, :password, 'user')");
                 $stmt_insert->bindParam(':fullname', $fullname);
                 $stmt_insert->bindParam(':email', $email);
-                $stmt_insert->bindParam(':password', $hashed_password); // ใช้ค่าที่ถูกแฮชแล้ว
+                $stmt_insert->bindParam(':password', $password); // บันทึกรหัสผ่านแบบ Plain text
 
                 if ($stmt_insert->execute()) {
                     header("Location: login.php?success=" . urlencode("สมัครสมาชิกสำเร็จ! กรุณาเข้าสู่ระบบ"));
@@ -44,9 +39,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 }
             }
         } catch (PDOException $e) {
-            // จัดการข้อผิดพลาดที่เกี่ยวกับฐานข้อมูล
             $error = "เกิดข้อผิดพลาดทางฐานข้อมูล: " . $e->getMessage();
-            // อาจจะบันทึก error ลง log เพื่อตรวจสอบ
             error_log("Registration Error: " . $e->getMessage());
         }
     }
@@ -79,26 +72,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             padding: 2rem;
             width: 100%;
             max-width: 450px;
-        }
-        .form-control, .form-select {
-            border-radius: 10px;
-        }
-        .btn-success {
-            background-color: #28a745;
-            border-color: #28a745;
-            border-radius: 10px;
-            font-size: 1.1rem;
-        }
-        .btn-success:hover {
-            background-color: #218838;
-            border-color: #1e7e34;
-        }
-        .text-center a {
-            color: #007bff;
-            text-decoration: none;
-        }
-        .text-center a:hover {
-            text-decoration: underline;
         }
     </style>
 </head>
