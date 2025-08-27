@@ -123,6 +123,7 @@ $blynk_status = true; // Assume online for now
                             
                             <?php if (!$is_expired && $blynk_status): ?>
                                 <div class="mt-4 flex flex-col space-y-2">
+                                    <!-- ปุ่มเปิดล็อคเกอร์ -->
                                     <form action="control_locker.php" method="POST" class="inline-block" onsubmit="return confirm('คุณต้องการเปิดล็อกเกอร์ใช่หรือไม่?');">
                                         <input type="hidden" name="locker_number" value="<?= htmlspecialchars($locker['locker_number']) ?>">
                                         <input type="hidden" name="command" value="open">
@@ -130,11 +131,20 @@ $blynk_status = true; // Assume online for now
                                             <i class="fas fa-door-open mr-2"></i> เปิดล็อกเกอร์
                                         </button>
                                     </form>
+                                    <!-- ปุ่มปิดล็อกเกอร์ -->
                                     <form action="control_locker.php" method="POST" class="inline-block" onsubmit="return confirm('คุณต้องการปิดล็อกเกอร์ใช่หรือไม่?');">
                                         <input type="hidden" name="locker_number" value="<?= htmlspecialchars($locker['locker_number']) ?>">
                                         <input type="hidden" name="command" value="close">
                                         <button type="submit" class="w-full bg-gray-500 text-white font-bold py-2 px-4 rounded-full hover:bg-gray-600 transition-colors flex items-center justify-center">
                                             <i class="fas fa-door-closed mr-2"></i> ปิดล็อกเกอร์
+                                        </button>
+                                    </form>
+                                    <!-- ปุ่มยกเลิกการจอง -->
+                                    <form action="control_locker.php" method="POST" class="inline-block" onsubmit="return confirm('คุณต้องการยกเลิกการจองล็อคเกอร์นี้ใช่หรือไม่?');">
+                                        <input type="hidden" name="locker_number" value="<?= htmlspecialchars($locker['locker_number']) ?>">
+                                        <input type="hidden" name="command" value="cancel">
+                                        <button type="submit" class="w-full bg-red-500 text-white font-bold py-2 px-4 rounded-full hover:bg-red-600 transition-colors flex items-center justify-center">
+                                            <i class="fas fa-times-circle mr-2"></i> ยกเลิกการจอง
                                         </button>
                                     </form>
                                 </div>
