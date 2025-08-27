@@ -1,43 +1,36 @@
 <?php
 // control_locker.php
 
+// ไฟล์นี้ถูกปรับปรุงให้รับค่าจาก HTTP POST Request
+// โค้ดนี้ไม่ใช้ session เพราะ ESP32 ไม่มีการจัดการ session เหมือน web browser
+
 include 'connect.php'; // ตรวจสอบว่ามีไฟล์ connect.php ที่เชื่อมต่อฐานข้อมูลอยู่หรือไม่
 
 header('Content-Type: application/json');
 
-// ฟังก์ชันสำหรับส่ง JSON response
+// Function to send a JSON response
 function sendJsonResponse($status, $message, $data = []) {
     echo json_encode(['status' => $status, 'message' => $message, 'data' => $data]);
     exit();
 }
 
-// โค้ดสำหรับ ESP32 ไม่จำเป็นต้องมีการตรวจสอบ Session
-// หากคุณต้องการเพิ่มความปลอดภัย สามารถใช้ Secret Key ในการตรวจสอบแทนได้
-
 $lockerNumber = $_POST['locker_number'] ?? null;
 $action = $_POST['action'] ?? null;
+$userEmail = $_POST['user_email'] ?? null; // ต้องส่ง email มาด้วยเพื่อใช้ตรวจสอบสิทธิ์
 
-// ตรวจสอบพารามิเตอร์ที่จำเป็น
-if (empty($lockerNumber) || empty($action)) {
-    sendJsonResponse('error', 'Missing required parameters (locker_number or action).');
+// Check for required parameters
+if (empty($lockerNumber) || empty($action) || empty($userEmail)) {
+    sendJsonResponse('error', 'Missing required parameters (locker_number, action, or user_email).');
 }
 
-// ตรวจสอบว่า action ถูกต้อง
+// Check if the action is valid
 if ($action !== 'open' && $action !== 'close') {
     sendJsonResponse('error', 'Invalid action. Action must be "open" or "close".');
 }
 
-// ในการใช้งานจริงกับ ESP32 คุณจะต้องส่ง user_email มาด้วย
-// เพื่อให้สามารถอัปเดตสถานะของล็อกเกอร์ได้ถูกต้อง
-$userEmail = $_POST['user_email'] ?? null;
-
-// ตรวจสอบพารามิเตอร์ user_email เพิ่มเติม
-if (empty($userEmail)) {
-    sendJsonResponse('error', 'Missing required parameter (user_email).');
-}
-
 try {
-    // ดึงข้อมูลล็อกเกอร์จากฐานข้อมูลเพื่อตรวจสอบสิทธิ์
+    // Retrieve locker information from the database to check permissions
+    // Check that the locker is booked by this user and the status is 'occupied'
     $stmt = $conn->prepare("
         SELECT id, esp32_ip_address, status
         FROM lockers
@@ -51,17 +44,17 @@ try {
     $locker = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$locker) {
-        sendJsonResponse('error', 'Permission denied. You do not own this locker or it is not occupied.');
+        sendJsonResponse('error', 'Permission denied. You do not own this locker or it is not occupied.', ['locker' => $lockerNumber]);
     }
 
     $esp32_ip = $locker['esp32_ip_address'];
     $esp32_url = "http://{$esp32_ip}/control?action={$action}";
     
-    // ใช้ cURL เพื่อส่งคำขอ HTTP GET ไปยัง ESP32
+    // Use cURL to send an HTTP GET request to the ESP32
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $esp32_url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 5); // ตั้งค่า timeout 5 วินาที
+    curl_setopt($ch, CURLOPT_TIMEOUT, 5); // 5-second timeout
 
     $response = curl_exec($ch);
     $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
