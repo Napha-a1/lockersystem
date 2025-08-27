@@ -1,93 +1,64 @@
 <?php
 // control_locker.php
+// ไฟล์นี้ใช้สำหรับรับคำสั่งจากหน้าเว็บ และส่งคำสั่งไปยัง ESP32 โดยตรง
 
-// ไฟล์นี้ถูกปรับปรุงให้รับค่าจาก HTTP POST Request
-// โค้ดนี้ไม่ใช้ session เพราะ ESP32 ไม่มีการจัดการ session เหมือน web browser
-
-include 'connect.php'; // ตรวจสอบว่ามีไฟล์ connect.php ที่เชื่อมต่อฐานข้อมูลอยู่หรือไม่
-
+// กำหนด header ให้เป็น JSON response
 header('Content-Type: application/json');
 
-// Function to send a JSON response
+// ฟังก์ชันสำหรับส่ง response กลับไปในรูปแบบ JSON
 function sendJsonResponse($status, $message, $data = []) {
     echo json_encode(['status' => $status, 'message' => $message, 'data' => $data]);
     exit();
 }
 
+// รับค่าจาก POST
 $lockerNumber = $_POST['locker_number'] ?? null;
-$action = $_POST['action'] ?? null;
-$userEmail = $_POST['user_email'] ?? null; // ต้องส่ง email มาด้วยเพื่อใช้ตรวจสอบสิทธิ์
+$command = $_POST['command'] ?? null; // 'on' or 'off'
+$esp32_ip = $_POST['esp32_ip'] ?? null; // รับ IP Address มาจากหน้า index.php
 
-// Check for required parameters
-if (empty($lockerNumber) || empty($action) || empty($userEmail)) {
-    sendJsonResponse('error', 'Missing required parameters (locker_number, action, or user_email).');
+// ตรวจสอบข้อมูลที่จำเป็น
+if (empty($lockerNumber) || empty($command) || empty($esp32_ip)) {
+    sendJsonResponse('ERROR', 'Missing required parameters (locker_number, command, or esp32_ip).');
 }
 
-// Check if the action is valid
-if ($action !== 'open' && $action !== 'close') {
-    sendJsonResponse('error', 'Invalid action. Action must be "open" or "close".');
+// ตรวจสอบว่า command ที่ส่งมาถูกต้องหรือไม่
+if ($command !== 'on' && $command !== 'off') {
+    sendJsonResponse('ERROR', 'Invalid command. Command must be "on" or "off".');
+}
+
+// ตรวจสอบว่าเป็น Locker 1 เท่านั้นที่สามารถควบคุมโดยตรงจากหน้านี้
+if ($lockerNumber != 1) {
+    sendJsonResponse('ERROR', 'Only Locker #1 can be controlled directly via this page.');
 }
 
 try {
-    // Retrieve locker information from the database to check permissions
-    // Check that the locker is booked by this user and the status is 'occupied'
-    $stmt = $conn->prepare("
-        SELECT id, esp32_ip_address, status
-        FROM lockers
-        WHERE locker_number = :locker_number
-          AND user_email = :user_email
-          AND status = 'occupied'
-    ");
-    $stmt->bindParam(':locker_number', $lockerNumber);
-    $stmt->bindParam(':user_email', $userEmail);
-    $stmt->execute();
-    $locker = $stmt->fetch(PDO::FETCH_ASSOC);
+    // สร้าง URL สำหรับส่งคำสั่งไปยัง ESP32
+    // ตัวอย่าง: http://10.242.194.185/on หรือ http://10.242.194.185/off
+    $url = "http://" . $esp32_ip . "/" . $command;
 
-    if (!$locker) {
-        sendJsonResponse('error', 'Permission denied. You do not own this locker or it is not occupied.', ['locker' => $lockerNumber]);
-    }
-
-    $esp32_ip = $locker['esp32_ip_address'];
-    $esp32_url = "http://{$esp32_ip}/control?action={$action}";
-    
-    // Use cURL to send an HTTP GET request to the ESP32
+    // ใช้ cURL เพื่อส่งคำสั่ง HTTP GET ไปยัง ESP32
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $esp32_url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 5); // 5-second timeout
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); // ตั้งค่าให้ cURL คืนค่าเป็นสตริง
+    curl_setopt($ch, CURLOPT_TIMEOUT, 5); // ตั้งค่า Timeout 5 วินาที
 
     $response = curl_exec($ch);
     $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curl_error = curl_error($ch);
     curl_close($ch);
 
-    $controlSuccess = false;
-    if ($http_code === 200) {
-        $controlSuccess = true;
-        error_log("Locker {$lockerNumber} control command sent successfully to {$esp32_ip}.");
+    // ตรวจสอบผลลัพธ์
+    if ($curl_error) {
+        sendJsonResponse('ERROR', 'cURL Error: ' . $curl_error);
+    } elseif ($http_code !== 200) {
+        sendJsonResponse('ERROR', 'HTTP Error: ' . $http_code . ' Response: ' . $response);
+    } elseif (trim($response) !== 'OK') { // ตรวจสอบการตอบกลับจาก ESP32
+        sendJsonResponse('ERROR', 'Unexpected ESP32 response: ' . $response);
     } else {
-        error_log("Failed to send command to ESP32 at {$esp32_ip}. HTTP Code: {$http_code}");
-    }
-    
-    if ($controlSuccess) {
-        if ($action === 'close') {
-            $update_stmt = $conn->prepare("
-                UPDATE lockers 
-                SET status = 'available', 
-                    user_email = NULL, 
-                    end_time = NOW() 
-                WHERE id = :id
-            ");
-            $update_stmt->bindParam(':id', $locker['id']);
-            $update_stmt->execute();
-        }
-
-        sendJsonResponse('success', 'Locker control command sent successfully.');
-    } else {
-        sendJsonResponse('error', 'Failed to send command to locker hardware.');
+        sendJsonResponse('SUCCESS', 'Command "' . $command . '" sent to Locker #1 successfully.');
     }
 
-} catch (PDOException $e) {
-    error_log("Database Error in control_locker.php: " . $e->getMessage());
-    sendJsonResponse('error', 'An internal server error occurred.');
+} catch (Exception $e) {
+    sendJsonResponse('ERROR', 'An unexpected error occurred: ' . $e->getMessage());
 }
 ?>
