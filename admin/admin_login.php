@@ -1,6 +1,6 @@
 <?php
 session_start();
-include '../connect.php'; // ตรวจสอบว่าพาธนี้ถูกต้อง
+include '../connect.php'; // ตรวจสอบว่าพาธนี้ถูกต้อง (อยู่ในโฟลเดอร์ admin)
 
 $error = '';
 
@@ -15,11 +15,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if ($row) {
-            // ตรวจสอบรหัสผ่านแบบ Plain Text (ตามความต้องการของคุณ)
+            // ใช้การตรวจสอบรหัสผ่านแบบ Plain Text โดยตรง
             if ($password === $row['password']) {
                 $_SESSION['admin_username'] = $row['username'];
                 $_SESSION['role'] = 'admin';
-                header("Location: booking_stats.php"); // ไปยังหน้าแดชบอร์ดแอดมิน
+                header("Location: booking_stats.php"); // Redirect ไปหน้าแดชบอร์ดแอดมิน
                 exit();
             } else {
                 $error = "รหัสผ่านไม่ถูกต้อง";
@@ -45,50 +45,56 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <style>
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f0f2f5;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             display: flex;
-            align-items: center;
             justify-content: center;
+            align-items: center;
             min-height: 100vh;
+            color: #333;
         }
         .login-box {
             background-color: #ffffff;
             padding: 40px;
             border-radius: 15px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
-            animation: fadeIn 0.8s ease-out;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            text-align: center;
             width: 100%;
             max-width: 400px;
+            animation: fadeIn 0.8s ease-out;
         }
         .login-box h2 {
-            color: #343a40;
             margin-bottom: 30px;
-            font-weight: bold;
-            text-align: center;
-        }
-        .form-label {
-            font-weight: 500;
-            color: #495057;
+            font-weight: 700;
+            color: #4a5568;
         }
         .form-control {
             border-radius: 8px;
-            padding: 10px 15px;
+            height: 45px;
+            padding: 0.75rem 1rem;
+            border: 1px solid #e2e8f0;
+        }
+        .form-control:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
         }
         .btn-primary {
-            background-color: #007bff;
-            border-color: #007bff;
-            padding: 12px;
-            font-size: 1.1rem;
-            border-radius: 10px;
-            transition: background-color 0.3s ease;
+            background-color: #667eea;
+            border-color: #667eea;
+            border-radius: 8px;
+            font-weight: 600;
+            padding: 10px 20px;
+            transition: all 0.3s ease;
         }
         .btn-primary:hover {
-            background-color: #0056b3;
-            border-color: #004d99;
+            background-color: #5a67d8;
+            border-color: #5a67d8;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(102, 126, 234, 0.3);
         }
         .alert {
             border-radius: 8px;
-            animation: fadeIn 0.5s ease-out;
+            text-align: left;
+            margin-bottom: 20px;
         }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(-20px); }
@@ -120,7 +126,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         </div>
     </form>
     <div class="text-center mt-3">
-        <!-- ลิงก์กลับไปหน้าหลัก (ถ้ามี) หรือข้อมูลเพิ่มเติม -->
+        <a href="../login.php" class="text-secondary text-decoration-none hover:text-primary"><i class="fas fa-arrow-left me-2"></i>กลับหน้าเข้าสู่ระบบผู้ใช้</a>
     </div>
 </div>
 
