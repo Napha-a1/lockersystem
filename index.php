@@ -123,7 +123,7 @@ $all_lockers = getAllLockers($conn);
                         <p class="text-gray-600 mb-2"><strong>ผู้ใช้งาน:</strong> <?= htmlspecialchars($locker['user_email'] ?? '-') ?></p>
                         <p class="text-gray-600 mb-4"><strong>หมดเวลา:</strong> <?= $locker['end_time'] ? date('d/m/Y H:i', strtotime($locker['end_time'])) : '-' ?></p>
 
-                        <?php if ($is_locker_1): // สำหรับ Locker 1 (ควบคุมโดยตรง ไม่สน DB) ?>
+                        <?php if ($is_locker_1): // สำหรับ Locker 1 (ปุ่มหลอกๆ ไม่สน DB) ?>
                             <p class="text-gray-600 text-sm mb-2"><strong>สถานะเชื่อมต่อ:</strong> 
                                 <span class="badge <?= $is_locker1_online_actual ? 'bg-primary' : 'bg-secondary' ?>">
                                     <i class="fas <?= $is_locker1_online_actual ? 'fa-globe' : 'fa-unlink' ?> mr-1"></i>
@@ -131,16 +131,14 @@ $all_lockers = getAllLockers($conn);
                                 </span>
                             </p>
                             <div class="flex space-x-2 mt-4">
-                                <button class="control-btn w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors duration-200 <?= !$is_locker1_online_actual ? 'opacity-50 cursor-not-allowed' : '' ?>" 
-                                    data-locker-id="<?= htmlspecialchars($locker['id']) ?>" 
+                                <button class="dummy-control-btn w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors duration-200 <?= !$is_locker1_online_actual ? 'opacity-50 cursor-not-allowed' : '' ?>" 
                                     data-locker-number="<?= htmlspecialchars($locker['locker_number']) ?>" 
                                     data-command="on" 
                                     data-esp32-ip="<?= htmlspecialchars($esp32_ip_locker1) ?>"
                                     <?= !$is_locker1_online_actual ? 'disabled' : '' ?>>
                                     <i class="fas fa-door-open mr-2"></i> เปิดล็อกเกอร์
                                 </button>
-                                <button class="control-btn w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors duration-200 <?= !$is_locker1_online_actual ? 'opacity-50 cursor-not-allowed' : '' ?>" 
-                                    data-locker-id="<?= htmlspecialchars($locker['id']) ?>" 
+                                <button class="dummy-control-btn w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors duration-200 <?= !$is_locker1_online_actual ? 'opacity-50 cursor-not-allowed' : '' ?>" 
                                     data-locker-number="<?= htmlspecialchars($locker['locker_number']) ?>" 
                                     data-command="off" 
                                     data-esp32-ip="<?= htmlspecialchars($esp32_ip_locker1) ?>"
@@ -189,7 +187,8 @@ $all_lockers = getAllLockers($conn);
 
     <script>
     $(document).ready(function() {
-        $('.control-btn').on('click', function() {
+        // สำหรับปุ่มหลอกๆ ของ Locker #1
+        $('.dummy-control-btn').on('click', function() {
             var lockerNumber = $(this).data('locker-number');
             var command = $(this).data('command'); // 'on' or 'off'
             var esp32Ip = $(this).data('esp32-ip'); // ดึง IP จาก data attribute
