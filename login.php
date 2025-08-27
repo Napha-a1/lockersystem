@@ -1,41 +1,42 @@
 <?php
 session_start();
-// เรียกใช้งานไฟล์เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
+// Include the database connection file
 include 'connect.php';
 
 $error = '';
-$success = $_GET['success'] ?? ''; // สำหรับแสดงข้อความจาก register.php
+$success = $_GET['success'] ?? ''; // For displaying success message from register.php
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $username = trim($_POST['username'] ?? '');
     $password = trim($_POST['password'] ?? '');
-    $role     = $_POST['role'] ?? 'user'; // default user
+    $role = $_POST['role'] ?? 'user'; // Default role is 'user'
 
     $sql = "";
     if ($role === "admin") {
-        // ล็อกอินแอดมินด้วย username
-        $sql = "SELECT * FROM admins WHERE username = :username";
+        // Admin login by username
+        $sql = "SELECT id, password FROM admins WHERE username = :username";
     } else {
-        // ล็อกอินผู้ใช้ด้วย email
-        $sql = "SELECT * FROM locker_users WHERE email = :username";
+        // User login by email
+        // We select both password and password_hash to handle legacy passwords
+        $sql = "SELECT id, email, password, password_hash FROM locker_users WHERE email = :username";
     }
 
     try {
-        // เตรียมคำสั่ง SQL
+        // Prepare the SQL statement
         $stmt = $conn->prepare($sql);
 
-        // ผูกค่าพารามิเตอร์
+        // Bind the username parameter
         $stmt->bindParam(':username', $username);
 
-        // ประมวลผลคำสั่ง
+        // Execute the statement
         $stmt->execute();
 
-        // ดึงข้อมูลผู้ใช้
+        // Fetch the user data
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if ($row) { // ถ้าพบผู้ใช้
+        if ($row) { // If user is found
             if ($role === "admin") {
-                // ตรวจสอบรหัสผ่านสำหรับแอดมิน (สมมติว่าไม่ได้ hash)
+                // Admin password check (assuming no hashing)
                 if ($password === $row['password']) {
                     $_SESSION['admin_username'] = $row['username'];
                     header("Location: admin_dashboard.php");
@@ -44,11 +45,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     $error = "รหัสผ่านไม่ถูกต้อง";
                 }
             } else {
-                // ตรวจสอบรหัสผ่านสำหรับผู้ใช้ โดยใช้ password_hash
-                // ตรวจสอบว่ามีค่า password_hash หรือไม่
-                if (isset($row['password_hash']) && $row['password_hash'] !== null) {
+                // Check if password_hash exists and is not null
+                if (isset($row['password_hash']) && !empty($row['password_hash'])) {
+                    // Verify the hashed password
                     if (password_verify($password, $row['password_hash'])) {
-                        // ถ้าถูกต้อง
+                        // Correct password
                         $_SESSION['user_email'] = $row['email'];
                         header("Location: index.php");
                         exit();
@@ -56,19 +57,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         $error = "รหัสผ่านไม่ถูกต้อง";
                     }
                 } else {
-                    // กรณีที่ไม่มี password_hash ให้ตรวจสอบกับคอลัมน์ password เดิม
-                    // และทำการอัปเดต password_hash ทันที
+                    // Fallback to checking the old 'password' column
                     if ($password === $row['password']) {
-                         // แฮชรหัสผ่านใหม่
+                        // Hash the password and update the database
                         $new_hashed_password = password_hash($password, PASSWORD_DEFAULT);
                         
-                        // อัปเดตฐานข้อมูลด้วยรหัสผ่านใหม่ที่แฮชแล้ว
                         $update_sql = "UPDATE locker_users SET password_hash = :new_hashed_password WHERE id = :id";
                         $update_stmt = $conn->prepare($update_sql);
                         $update_stmt->bindParam(':new_hashed_password', $new_hashed_password);
                         $update_stmt->bindParam(':id', $row['id']);
                         $update_stmt->execute();
                         
+                        // Set session and redirect
                         $_SESSION['user_email'] = $row['email'];
                         header("Location: index.php");
                         exit();
@@ -78,7 +78,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 }
             }
         } else {
-            // ไม่พบชื่อผู้ใช้หรืออีเมลในระบบ
+            // Username or email not found
             $error = "ชื่อผู้ใช้หรืออีเมลไม่ถูกต้อง";
         }
     } catch (PDOException $e) {
