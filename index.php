@@ -1,39 +1,17 @@
 <?php
 session_start();
-include 'connect.php'; // เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
 
-// Function to fetch all locker data
-function getAllLockers($conn) {
-    try {
-        $stmt = $conn->query("SELECT id, locker_number, status, esp32_ip_address, user_email, end_time, price_per_hour FROM lockers ORDER BY locker_number ASC");
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-        error_log("Error fetching lockers: " . $e->getMessage());
-        return [];
-    }
-}
+// กำหนดข้อมูล Locker ที่จะแสดง
+$locker_number = 1; // แสดงเฉพาะ Locker หมายเลข 1
+$user_email = "l0tt@gmail.com"; // กำหนด user_email โดยตรง
 
-// Function to check if a locker has expired
-function isLockerExpired($endTime) {
-    if (!$endTime) {
-        return false;
-    }
-    $now = new DateTime();
-    $end_time_dt = new DateTime($endTime);
-    return $now > $end_time_dt;
-}
+// สถานะของ Locker จะจำลองขึ้นมาสำหรับหน้า UI นี้
+// ในระบบจริง ESP32 จะเป็นตัวกำหนดสถานะ และหน้าเว็บนี้จะแสดงผลตามคำสั่งที่ส่งไป
+$current_locker_status = 'unknown'; // เริ่มต้นเป็นสถานะไม่ทราบ
 
-// Get all locker data
-$lockers = getAllLockers($conn);
-$current_user_email = $_SESSION['user_email'] ?? null;
-$has_user_lockers = false;
-
-// Handle alert messages
+// ข้อความแจ้งเตือน (จาก URL parameters)
 $success_message = $_GET['success'] ?? '';
 $error_message = $_GET['error'] ?? '';
-
-// Assume Blynk/ESP32 is online for the purpose of this UI
-$blynk_status = true; 
 ?>
 
 <!DOCTYPE html>
@@ -41,7 +19,7 @@ $blynk_status = true;
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบจัดการ Locker</title>
+    <title>Locker Control</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" rel="stylesheet">
     <style>
@@ -55,15 +33,11 @@ $blynk_status = true;
     <!-- Header -->
     <header class="bg-gray-800 text-white p-4 shadow-lg sticky top-0 z-50">
         <div class="container mx-auto flex justify-between items-center">
-            <a href="index.php" class="text-2xl font-bold">ระบบจัดการ Locker</a>
+            <h1 class="text-2xl font-bold">Locker Control System</h1>
             <nav>
                 <ul class="flex space-x-4">
-                    <?php if ($current_user_email): ?>
-                        <li><a href="all_locker_status.php" class="hover:text-gray-300">สถานะทั้งหมด</a></li>
-                        <li><a href="logout.php" class="hover:text-gray-300">ออกจากระบบ</a></li>
-                    <?php else: ?>
-                        <li><a href="login.php" class="hover:text-gray-300">เข้าสู่ระบบ</a></li>
-                    <?php endif; ?>
+                    <li><a href="admin.php" class="hover:text-gray-300">เข้าสู่ระบบ Admin</a></li>
+                    <li><a href="#" class="hover:text-gray-300">ยินดีต้อนรับ, <?= htmlspecialchars($user_email) ?></a></li>
                 </ul>
             </nav>
         </div>
@@ -72,90 +46,50 @@ $blynk_status = true;
     <!-- Main Content -->
     <main class="flex-grow container mx-auto p-6 mt-8">
         <div class="text-center mb-8">
-            <h1 class="text-4xl font-extrabold text-gray-900 mb-2">สถานะ Locker ของคุณ</h1>
-            <?php if ($current_user_email): ?>
-                <p class="text-lg text-gray-600">ยินดีต้อนรับ, <?= htmlspecialchars($current_user_email) ?></p>
-            <?php else: ?>
-                <p class="text-lg text-gray-600">กรุณาเข้าสู่ระบบเพื่อดูสถานะและจัดการล็อกเกอร์ของคุณ</p>
-                <a href="login.php" class="mt-4 inline-block px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition duration-300">เข้าสู่ระบบ</a>
-            <?php endif; ?>
+            <h1 class="text-4xl font-extrabold text-gray-900 mb-2">ควบคุม Locker #<?= htmlspecialchars($locker_number) ?></h1>
+            <p class="text-lg text-gray-600">สำหรับผู้ใช้งาน: <?= htmlspecialchars($user_email) ?></p>
         </div>
 
         <!-- Alert Messages -->
-        <?php if ($success_message): ?>
-            <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-4 rounded-lg shadow-md" role="alert">
-                <p class="font-bold">สำเร็จ!</p>
-                <p><?= htmlspecialchars($success_message) ?></p>
-            </div>
-        <?php endif; ?>
-        <?php if ($error_message): ?>
-            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 rounded-lg shadow-md" role="alert">
-                <p class="font-bold">เกิดข้อผิดพลาด!</p>
-                <p><?= htmlspecialchars($error_message) ?></p>
-            </div>
-        <?php endif; ?>
-
-        <!-- Locker List -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            <?php if (!empty($lockers)): ?>
-                <?php foreach ($lockers as $locker): 
-                    $is_occupied_by_user = ($locker['status'] === 'occupied' && $locker['user_email'] === $current_user_email);
-                    $is_expired = isLockerExpired($locker['end_time']);
-                    
-                    if ($current_user_email && $is_occupied_by_user):
-                        $has_user_lockers = true;
-                    else:
-                        continue;
-                    endif;
-                ?>
-                    <div class="locker-card bg-white p-6 rounded-2xl shadow-xl flex flex-col justify-between items-center text-center">
-                        <div class="w-full">
-                            <i class="fas fa-lock text-5xl mb-4 <?= $locker['status'] === 'available' ? 'text-green-500' : 'text-yellow-500' ?>"></i>
-                            <h2 class="text-3xl font-bold mb-2 text-gray-800">Locker #<?= htmlspecialchars($locker['locker_number']) ?></h2>
-                            <p class="text-xl text-gray-600 mb-4">
-                                สถานะ: <span class="font-semibold <?= $locker['status'] === 'available' ? 'text-green-600' : 'text-yellow-600' ?>">
-                                    <?= $locker['status'] === 'available' ? 'ว่าง' : 'ไม่ว่าง' ?>
-                                </span>
-                            </p>
-                        </div>
-                        
-                        <!-- Control Section -->
-                        <?php if ($current_user_email): ?>
-                            <?php if ($is_occupied_by_user && !$is_expired): ?>
-                                <!-- Control form with robust JavaScript -->
-                                <div class="w-full space-y-4">
-                                    <button onclick="controlLocker(<?= htmlspecialchars($locker['locker_number']) ?>, 'open')"
-                                        class="w-full px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition duration-300">
-                                        <i class="fas fa-unlock-alt mr-2"></i> เปิด/ปิด Locker
-                                    </button>
-                                    
-                                    <form id="cancel-form-<?= htmlspecialchars($locker['locker_number']) ?>" action="cancel_booking.php" method="POST">
-                                        <input type="hidden" name="locker_id" value="<?= htmlspecialchars($locker['id']) ?>">
-                                        <button type="submit"
-                                            class="w-full px-6 py-3 bg-red-600 text-white font-semibold rounded-lg shadow-md hover:bg-red-700 transition duration-300">
-                                            <i class="fas fa-times-circle mr-2"></i> ยกเลิกการจอง
-                                        </button>
-                                    </form>
-                                </div>
-                            <?php elseif ($is_expired): ?>
-                                <div class="mt-4 text-center text-red-600 font-semibold">
-                                    ล็อกเกอร์หมดเวลาแล้ว ไม่สามารถควบคุมได้
-                                </div>
-                            <?php else: ?>
-                                <div class="mt-4 text-center text-gray-500">
-                                    ไม่สามารถควบคุมได้ในสถานะนี้
-                                </div>
-                            <?php endif; ?>
-                        <?php endif; ?>
-                    </div>
-                <?php endforeach; ?>
-                <?php if (!$has_user_lockers && $current_user_email): ?>
-                    <p class="col-span-full text-center text-gray-600">คุณยังไม่มีล็อกเกอร์ที่ใช้งานอยู่</p>
-                    <a href="book_locker.php" class="col-span-full text-center mt-4 inline-block px-6 py-3 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition duration-300">จองล็อกเกอร์</a>
-                <?php endif; ?>
-            <?php else: ?>
-                <p class="col-span-full text-center text-gray-600">ไม่มีล็อกเกอร์ในระบบ</p>
+        <div id="alert-container" class="mb-4">
+            <?php if ($success_message): ?>
+                <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-4 rounded-lg shadow-md" role="alert">
+                    <p class="font-bold">สำเร็จ!</p>
+                    <p><?= htmlspecialchars($success_message) ?></p>
+                </div>
             <?php endif; ?>
+            <?php if ($error_message): ?>
+                <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 rounded-lg shadow-md" role="alert">
+                    <p class="font-bold">เกิดข้อผิดพลาด!</p>
+                    <p><?= htmlspecialchars($error_message) ?></p>
+                </div>
+            <?php endif; ?>
+        </div>
+
+        <!-- Locker Card (Single) -->
+        <div class="max-w-md mx-auto locker-card bg-white p-6 rounded-2xl shadow-xl flex flex-col justify-between items-center text-center">
+            <div class="w-full">
+                <i id="locker-icon" class="fas fa-lock text-5xl mb-4 text-gray-500"></i>
+                <h2 class="text-3xl font-bold mb-2 text-gray-800">Locker #<?= htmlspecialchars($locker_number) ?></h2>
+                <p class="text-xl text-gray-600 mb-4">
+                    สถานะ: <span id="locker-status-text" class="font-semibold text-gray-600">
+                        ไม่ทราบสถานะ
+                    </span>
+                </p>
+            </div>
+            
+            <!-- Control Section -->
+            <div class="w-full space-y-4">
+                <button onclick="sendEsp32Command('on')"
+                    class="w-full px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition duration-300">
+                    <i class="fas fa-door-open mr-2"></i> เปิดล็อกเกอร์
+                </button>
+                
+                <button onclick="sendEsp32Command('off')"
+                    class="w-full px-6 py-3 bg-red-600 text-white font-semibold rounded-lg shadow-md hover:bg-red-700 transition duration-300">
+                    <i class="fas fa-door-closed mr-2"></i> ปิดล็อกเกอร์
+                </button>
+            </div>
         </div>
     </main>
 
@@ -167,42 +101,70 @@ $blynk_status = true;
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/js/all.min.js"></script>
     <script>
-        function controlLocker(lockerNumber, action) {
-            console.log(`Sending command: ${action} to locker #${lockerNumber}`);
-            
-            // แสดงข้อความกำลังโหลด
-            // Note: For a real application, you might add a loading spinner or disable the button.
-            
-            $.ajax({
-                url: 'api_control.php',
-                type: 'POST',
-                data: {
-                    locker_number: lockerNumber,
-                    action: action
-                },
-                dataType: 'json', // Expect JSON response
-                success: function(response) {
-                    console.log('API Response:', response);
-                    if (response.status === 'success') {
-                        // Reload the page to show the updated status
-                        window.location.href = `index.php?success=${encodeURIComponent(response.message)}`;
-                    } else {
-                        // Show error message
-                        window.location.href = `index.php?error=${encodeURIComponent(response.message)}`;
-                    }
-                },
-                error: function(jqXHR, textStatus, errorThrown) {
-                    console.error('AJAX Error:', textStatus, errorThrown, jqXHR.responseText);
-                    let errorMessage = 'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์ กรุณาลองใหม่อีกครั้ง';
-                    // Attempt to parse JSON error message if available
-                    try {
-                        const errorResponse = JSON.parse(jqXHR.responseText);
-                        errorMessage = errorResponse.message || errorMessage;
-                    } catch (e) {
-                        // Fallback to generic error message
-                    }
-                    window.location.href = `index.php?error=${encodeURIComponent(errorMessage)}`;
+        const esp32_ip = "10.242.194.185"; // IP Address ของ ESP32
+
+        function showStatusAlert(message, type) {
+            const alertContainer = document.getElementById('alert-container');
+            const alertHtml = `
+                <div class="bg-${type}-100 border-l-4 border-${type}-500 text-${type}-700 p-4 mb-4 rounded-lg shadow-md" role="alert">
+                    <p class="font-bold">${type === 'success' ? 'สำเร็จ!' : 'เกิดข้อผิดพลาด!'}</p>
+                    <p>${message}</p>
+                </div>
+            `;
+            alertContainer.innerHTML = alertHtml;
+        }
+
+        function updateLockerStatusUI(status) {
+            const lockerIcon = document.getElementById('locker-icon');
+            const lockerStatusText = document.getElementById('locker-status-text');
+            const lockerCard = document.querySelector('.locker-card');
+
+            // Reset classes
+            lockerIcon.className = 'fas text-5xl mb-4';
+            lockerStatusText.className = 'font-semibold';
+            lockerCard.classList.remove('status-available', 'status-occupied');
+
+            if (status === 'on') {
+                lockerIcon.classList.add('fa-lock-open', 'text-green-500');
+                lockerStatusText.classList.add('text-green-600');
+                lockerStatusText.textContent = 'เปิดอยู่';
+                lockerCard.classList.add('status-available');
+            } else if (status === 'off') {
+                lockerIcon.classList.add('fa-lock', 'text-red-500');
+                lockerStatusText.classList.add('text-red-600');
+                lockerStatusText.textContent = 'ปิดอยู่';
+                lockerCard.classList.add('status-occupied');
+            } else {
+                lockerIcon.classList.add('fa-question-circle', 'text-gray-500');
+                lockerStatusText.classList.add('text-gray-600');
+                lockerStatusText.textContent = 'ไม่ทราบสถานะ';
+            }
+        }
+
+        function sendEsp32Command(command) {
+            const url = `http://${esp32_ip}/${command}`; // สร้าง URL สำหรับส่งคำสั่ง
+            console.log(`Sending command to ESP32: ${url}`);
+
+            fetch(url, {
+                method: 'GET' 
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
+                return response.text(); 
+            })
+            .then(result => {
+                console.log('ESP32 Response:', result);
+                let message = `คำสั่ง ${command === 'on' ? 'เปิด' : 'ปิด'} ล็อกเกอร์ถูกส่งสำเร็จ.`;
+                showStatusAlert(message, 'success');
+                updateLockerStatusUI(command); // อัปเดต UI ทันที
+            })
+            .catch(error => {
+                console.error('Error sending command to ESP32:', error);
+                let message = `เกิดข้อผิดพลาดในการส่งคำสั่ง ${command === 'on' ? 'เปิด' : 'ปิด'} ล็อกเกอร์: ${error.message}`;
+                showStatusAlert(message, 'red');
+                updateLockerStatusUI('unknown'); // แสดงสถานะไม่ทราบ
             });
         }
     </script>
