@@ -1,6 +1,4 @@
 <?php
-// book_locker.php
-// ไฟล์สำหรับหน้าฟอร์มการจองล็อกเกอร์
 session_start();
 if (!isset($_SESSION['user_email'])) {
   header('Location: login.php');
@@ -36,103 +34,104 @@ try {
       font-family: 'Inter', sans-serif;
       background-color: #f8f9fa;
     }
-    .card {
+    .booking-card {
+      background-color: #ffffff;
+      padding: 2rem;
       border-radius: 15px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+      width: 100%;
+      max-width: 500px;
     }
-    .card-header {
-      background-color: #007bff;
-      color: white;
-      border-top-left-radius: 15px;
-      border-top-right-radius: 15px;
-      text-align: center;
-      padding: 1.5rem;
-    }
-    .form-label {
-      font-weight: 600;
+    .btn-primary, .btn-secondary {
+      border-radius: 50px;
+      padding: 10px 20px;
     }
     .btn-primary {
       background-color: #007bff;
       border-color: #007bff;
-      transition: background-color 0.3s;
     }
     .btn-primary:hover {
       background-color: #0056b3;
-      border-color: #0056b3;
+      border-color: #004d99;
     }
-    .total-price {
-      font-size: 1.5rem;
-      font-weight: bold;
-      color: #28a745;
+    .btn-secondary {
+      background-color: #6c757d;
+      border-color: #6c757d;
+    }
+    .btn-secondary:hover {
+      background-color: #5a6268;
+      border-color: #545b62;
+    }
+    .text-center a {
+        color: #6c757d;
+        text-decoration: none;
+    }
+    .text-center a:hover {
+        color: #007bff;
     }
   </style>
 </head>
 <body>
 
-<div class="container d-flex justify-content-center align-items-center min-vh-100">
-    <div class="card p-4" style="width: 100%; max-width: 500px;">
-        <div class="card-header">
-            <h3>จองล็อกเกอร์</h3>
-        </div>
-        <div class="card-body">
-            <?php if (isset($_GET['error'])): ?>
-                <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                    <i class="fas fa-exclamation-circle me-2"></i><?= htmlspecialchars($_GET['error']) ?>
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                </div>
-            <?php endif; ?>
+<div class="d-flex justify-content-center align-items-center" style="min-height: 100vh;">
+  <div class="booking-card shadow">
+    <h2 class="text-center mb-4"><i class="fas fa-calendar-check me-2"></i>จองล็อกเกอร์</h2>
 
-            <form action="book_process.php" method="POST">
-                <div class="mb-3">
-                    <label for="locker_id" class="form-label">เลือกล็อกเกอร์:</label>
-                    <select name="locker_id" id="locker_id" class="form-select" required>
-                        <?php if (count($available_lockers) > 0): ?>
-                            <?php foreach ($available_lockers as $locker): ?>
-                                <option value="<?= htmlspecialchars($locker['id']) ?>" data-price="<?= htmlspecialchars($locker['price_per_hour']) ?>">
-                                    ล็อกเกอร์ที่ <?= htmlspecialchars($locker['locker_number']) ?> (ราคา: <?= number_format($locker['price_per_hour'], 2) ?> บาท/ชม.)
-                                </option>
-                            <?php endforeach; ?>
-                        <?php else: ?>
-                            <option value="" disabled selected>ไม่มีล็อกเกอร์ว่างในขณะนี้</option>
-                        <?php endif; ?>
-                    </select>
-                </div>
+    <?php if (isset($_GET['error'])): ?>
+      <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="fas fa-exclamation-triangle me-2"></i><?= htmlspecialchars($_GET['error']) ?>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+    <?php endif; ?>
 
-                <div class="mb-3">
-                    <label for="start_time" class="form-label">เวลาเริ่มต้น:</label>
-                    <input type="datetime-local" class="form-control" name="start_time" id="start_time" required>
-                </div>
+    <?php if (empty($available_lockers)): ?>
+      <div class="alert alert-warning text-center" role="alert">
+        <i class="fas fa-info-circle me-2"></i>ขณะนี้ไม่มีล็อกเกอร์ว่าง
+      </div>
+    <?php else: ?>
+    <form action="book_process.php" method="POST">
+      <div class="mb-3">
+        <label for="locker_id" class="form-label">เลือกหมายเลขล็อกเกอร์:</label>
+        <select class="form-select" id="locker_id" name="locker_id" required>
+          <?php foreach ($available_lockers as $locker): ?>
+            <option value="<?= htmlspecialchars($locker['id']) ?>" data-price="<?= htmlspecialchars($locker['price_per_hour']) ?>">
+              ล็อกเกอร์หมายเลข <?= htmlspecialchars($locker['locker_number']) ?> (฿<?= number_format($locker['price_per_hour'], 2) ?>/ชั่วโมง)
+            </option>
+          <?php endforeach; ?>
+        </select>
+      </div>
 
-                <div class="mb-3">
-                    <label for="end_time" class="form-label">เวลาสิ้นสุด:</label>
-                    <input type="datetime-local" class="form-control" name="end_time" id="end_time" required>
-                </div>
+      <div class="mb-3">
+        <label for="start_time" class="form-label">เวลาเริ่มต้น:</label>
+        <input type="datetime-local" class="form-control" id="start_time" name="start_time" required>
+      </div>
 
-                <div class="mb-3 text-center">
-                    <label class="form-label">ราคารวม:</label>
-                    <span class="total-price" id="total_price">0.00</span> บาท
-                </div>
+      <div class="mb-3">
+        <label for="end_time" class="form-label">เวลาสิ้นสุด:</label>
+        <input type="datetime-local" class="form-control" id="end_time" name="end_time" required>
+      </div>
 
-                <div class="d-grid gap-2">
-                    <button type="submit" class="btn btn-primary btn-lg" <?= (count($available_lockers) == 0) ? 'disabled' : '' ?>>
-                        <i class="fas fa-lock me-2"></i>ยืนยันการจอง
-                    </button>
-                    <a href="index.php" class="btn btn-secondary btn-lg">
-                        <i class="fas fa-arrow-left me-2"></i>กลับหน้าหลัก
-                    </a>
-                </div>
-            </form>
-        </div>
-    </div>
+      <div class="mb-4 text-center">
+          <h5>ราคารวม: <span id="total_price" class="text-success">0.00</span> บาท</h5>
+      </div>
+      
+      <div class="d-grid gap-2">
+        <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-lock-open me-2"></i>ยืนยันการจอง</button>
+        <a href="index.php" class="btn btn-secondary btn-lg"><i class="fas fa-arrow-left me-2"></i>กลับ</a>
+      </div>
+    </form>
+    <?php endif; ?>
+
+  </div>
 </div>
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 $(document).ready(function() {
-    // ตั้งค่าเวลาเริ่มต้นและเวลาสิ้นสุดเป็นค่าเริ่มต้น
+    // ตั้งค่าเวลาเริ่มต้นและสิ้นสุดอัตโนมัติ
     const now = new Date();
-    // ปรับเวลาให้เป็นโซนเวลาท้องถิ่น (ป้องกันปัญหาเรื่อง offset)
+    // ปรับเวลาท้องถิ่น (ป้องกันปัญหาเรื่อง offset)
     const offset = now.getTimezoneOffset() * 60000; // milliseconds
     const localNow = new Date(now.getTime() - offset);
 
@@ -165,13 +164,12 @@ $(document).ready(function() {
         $('#total_price').text(totalPrice.toFixed(2));
     }
 
-    // เรียกใช้ฟังก์ชันคำนวณราคาเมื่อค่าในฟอร์มมีการเปลี่ยนแปลง
-    $('#locker_id, #start_time, #end_time').on('change', calculateTotalPrice);
+    // เรียกใช้ฟังก์ชันคำนวณราคาเมื่อค่าในฟอร์มเปลี่ยน
+    $('#locker_id, #start_time, #end_time').on('change input', calculateTotalPrice);
 
-    // เรียกใช้ฟังก์ชันครั้งแรกตอนโหลดหน้าเว็บ
+    // เรียกใช้ครั้งแรกเมื่อโหลดหน้าเว็บ
     calculateTotalPrice();
 });
 </script>
-
 </body>
 </html>
