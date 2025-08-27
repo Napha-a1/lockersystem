@@ -103,7 +103,8 @@ $all_lockers = getAllLockers($conn);
                         $is_available = ($locker['status'] === 'available');
                         $is_expired = ($locker['end_time'] && strtotime($locker['end_time']) < time());
                         $is_online_config = !empty($locker['esp32_ip_address']); // ตรวจสอบว่ามี IP Address ใน DB หรือไม่ (สำหรับ Locker อื่นๆ)
-                        $is_locker1_online_actual = !empty($esp32_ip_locker1); // สำหรับ Locker 1 ใช้ IP ที่กำหนดตายตัว
+                        // สำหรับ Locker 1, สถานะ "ออนไลน์" จะดูจากว่าเรามี IP Address ที่กำหนดให้มันหรือไม่
+                        $is_locker1_online_actual = !empty($esp32_ip_locker1); 
                     ?>
                     <div class="card bg-white rounded-lg shadow-lg p-6 
                         <?= $is_locker_1 ? 'border-4 border-blue-500' : 
@@ -122,7 +123,7 @@ $all_lockers = getAllLockers($conn);
                         <p class="text-gray-600 mb-2"><strong>ผู้ใช้งาน:</strong> <?= htmlspecialchars($locker['user_email'] ?? '-') ?></p>
                         <p class="text-gray-600 mb-4"><strong>หมดเวลา:</strong> <?= $locker['end_time'] ? date('d/m/Y H:i', strtotime($locker['end_time'])) : '-' ?></p>
 
-                        <?php if ($is_locker_1): // สำหรับ Locker 1 (ควบคุมโดยตรง) ?>
+                        <?php if ($is_locker_1): // สำหรับ Locker 1 (ควบคุมโดยตรง ไม่สน DB) ?>
                             <p class="text-gray-600 text-sm mb-2"><strong>สถานะเชื่อมต่อ:</strong> 
                                 <span class="badge <?= $is_locker1_online_actual ? 'bg-primary' : 'bg-secondary' ?>">
                                     <i class="fas <?= $is_locker1_online_actual ? 'fa-globe' : 'fa-unlink' ?> mr-1"></i>
@@ -150,9 +151,9 @@ $all_lockers = getAllLockers($conn);
                             <div id="status-<?= htmlspecialchars($locker['locker_number']) ?>" class="mt-4 text-center text-gray-600"></div>
                         <?php else: // สำหรับ Locker อื่นๆ (แสดงสถานะและจอง) ?>
                             <p class="text-gray-600 text-sm mb-2"><strong>สถานะเชื่อมต่อ:</strong> 
-                                <span class="badge <?= $is_online_config ? 'bg-primary' : 'bg-secondary' ?>">
-                                    <i class="fas <?= $is_online_config ? 'fa-globe' : 'fa-unlink' ?> mr-1"></i>
-                                    <?= $is_online_config ? 'ออนไลน์' : 'ออฟไลน์' ?>
+                                <span class="badge <?= !empty($locker['esp32_ip_address']) ? 'bg-primary' : 'bg-secondary' ?>">
+                                    <i class="fas <?= !empty($locker['esp32_ip_address']) ? 'fa-globe' : 'fa-unlink' ?> mr-1"></i>
+                                    <?= !empty($locker['esp32_ip_address']) ? 'ออนไลน์' : 'ออฟไลน์' ?>
                                 </span>
                             </p>
                             <?php if ($is_available && $current_user_email): ?>
@@ -189,7 +190,6 @@ $all_lockers = getAllLockers($conn);
     <script>
     $(document).ready(function() {
         $('.control-btn').on('click', function() {
-            var lockerId = $(this).data('locker-id');
             var lockerNumber = $(this).data('locker-number');
             var command = $(this).data('command'); // 'on' or 'off'
             var esp32Ip = $(this).data('esp32-ip'); // ดึง IP จาก data attribute
@@ -201,19 +201,19 @@ $all_lockers = getAllLockers($conn);
             statusDiv.text('กำลังส่งคำสั่ง...');
             btn.prop('disabled', true).addClass('opacity-50'); // ปิดปุ่มชั่วคราว
 
+            // ส่งคำสั่งไปยัง control_locker.php (ซึ่งจะส่งต่อไปยัง ESP32)
             $.post('control_locker.php', { 
-                locker_id: lockerId, // ส่ง locker_id ไปด้วยเพื่ออัปเดต DB
                 locker_number: lockerNumber, 
                 command: command,
-                esp32_ip: esp32Ip // ใช้ IP ที่ดึงมา
+                esp32_ip: esp32Ip 
             }, function(response) {
                 if (response.status === 'SUCCESS') {
                     statusDiv.text('คำสั่ง "' + command + '" สำเร็จ!');
-                    // อัปเดตสถานะใน UI ทันที
+                    // อัปเดตสถานะใน UI ทันที (สำหรับ Locker 1 เท่านั้น)
                     if(command === 'on') {
-                        statusBadge.removeClass('bg-red-100 text-red-800 bg-gray-100 text-gray-800 bg-green-100 text-green-800').addClass('bg-yellow-100 text-yellow-800').text('สถานะ: ไม่ว่าง'); // เมื่อเปิด ถือว่า occupied
+                        statusBadge.removeClass('bg-red-100 text-red-800 bg-gray-100 text-gray-800 bg-green-100 text-green-800').addClass('bg-yellow-100 text-yellow-800').text('สถานะ: เปิดอยู่'); 
                     } else {
-                        statusBadge.removeClass('bg-red-100 text-red-800 bg-gray-100 text-gray-800 bg-yellow-100 text-yellow-800').addClass('bg-green-100 text-green-800').text('สถานะ: ว่าง'); // เมื่อปิด ถือว่า available
+                        statusBadge.removeClass('bg-red-100 text-red-800 bg-gray-100 text-gray-800 bg-yellow-100 text-yellow-800').addClass('bg-green-100 text-green-800').text('สถานะ: ปิดอยู่'); 
                     }
                 } else {
                     statusDiv.text('เกิดข้อผิดพลาด: ' + response.message);
