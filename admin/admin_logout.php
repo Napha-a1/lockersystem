@@ -16,6 +16,6 @@ if (ini_get("session.use_cookies")) {
 session_destroy();
 
 // Redirect ไปหน้า Admin Login
-header("Location: login.php");
+header("Location: admin_login.php");
 exit();
 ?>
