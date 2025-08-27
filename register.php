@@ -1,5 +1,5 @@
 <?php
-// Include the database connection file
+// เชื่อมต่อฐานข้อมูล (ใช้ connect.php เพื่อความสอดคล้อง)
 include 'connect.php';
 
 $error = "";
@@ -15,43 +15,44 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $error = "กรุณากรอกข้อมูลให้ครบถ้วน";
     } elseif ($password !== $confirm_password) {
         $error = "รหัสผ่านไม่ตรงกัน";
-    } elseif (strlen($password) < 6) { // Check password length
+    } elseif (strlen($password) < 6) { // เพิ่มการตรวจสอบความยาวรหัสผ่าน
         $error = "รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร";
     } else {
         try {
-            // Check if email already exists
+            // ตรวจสอบอีเมลซ้ำ
             $stmt_check = $conn->prepare("SELECT id FROM locker_users WHERE email = :email");
             $stmt_check->bindParam(':email', $email);
             $stmt_check->execute();
 
-            if ($stmt_check->fetch(PDO::FETCH_ASSOC)) { // If email is found, it's already in use
+            if ($stmt_check->fetch(PDO::FETCH_ASSOC)) { // ถ้าพบข้อมูล แสดงว่าอีเมลนี้ถูกใช้แล้ว
                 $error = "อีเมลนี้ถูกใช้แล้ว";
             } else {
-                // Hash the password for secure storage
+                // แฮชรหัสผ่าน
                 $hashed_password = password_hash($password, PASSWORD_DEFAULT);
 
-                // Insert the new user into the database
-                $stmt_insert = $conn->prepare("INSERT INTO locker_users (fullname, email, password_hash, created_at) VALUES (:fullname, :email, :password_hash, NOW())");
-                
+                // เพิ่มผู้ใช้ใหม่
+                $stmt_insert = $conn->prepare("INSERT INTO locker_users (fullname, email, password, role) VALUES (:fullname, :email, :password, 'user')");
                 $stmt_insert->bindParam(':fullname', $fullname);
                 $stmt_insert->bindParam(':email', $email);
-                $stmt_insert->bindParam(':password_hash', $hashed_password);
+                $stmt_insert->bindParam(':password', $hashed_password); // ใช้ค่าที่ถูกแฮชแล้ว
 
                 if ($stmt_insert->execute()) {
-                    // Redirect to login page with a success message
-                    header("Location: login.php?success=" . urlencode("สมัครสมาชิกสำเร็จแล้ว! กรุณาเข้าสู่ระบบ"));
+                    header("Location: login.php?success=" . urlencode("สมัครสมาชิกสำเร็จ! กรุณาเข้าสู่ระบบ"));
                     exit();
                 } else {
-                    $error = "เกิดข้อผิดพลาดในการสมัครสมาชิก";
+                    $error = "เกิดข้อผิดพลาดในการสมัครสมาชิก กรุณาลองใหม่อีกครั้ง";
                 }
             }
         } catch (PDOException $e) {
+            // จัดการข้อผิดพลาดที่เกี่ยวกับฐานข้อมูล
             $error = "เกิดข้อผิดพลาดทางฐานข้อมูล: " . $e->getMessage();
-            error_log("Database Error in register.php: " . $e->getMessage()); // Log the error for debugging
+            // อาจจะบันทึก error ลง log เพื่อตรวจสอบ
+            error_log("Registration Error: " . $e->getMessage());
         }
     }
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -62,36 +63,52 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         body {
-            background-color: #f3f4f6;
             font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5;
         }
-        .register-container {
-            max-width: 450px;
-            margin: 50px auto;
-            padding: 2rem;
+        .container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .card {
             background-color: #ffffff;
-            border-radius: 1rem;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            padding: 2rem;
+            width: 100%;
+            max-width: 450px;
         }
-        .form-label {
-            font-weight: 500;
+        .form-control, .form-select {
+            border-radius: 10px;
         }
         .btn-success {
-            background-color: #22c55e;
-            border-color: #22c55e;
-            transition: background-color 0.3s;
+            background-color: #28a745;
+            border-color: #28a745;
+            border-radius: 10px;
+            font-size: 1.1rem;
         }
         .btn-success:hover {
-            background-color: #16a34a;
-            border-color: #16a34a;
+            background-color: #218838;
+            border-color: #1e7e34;
+        }
+        .text-center a {
+            color: #007bff;
+            text-decoration: none;
+        }
+        .text-center a:hover {
+            text-decoration: underline;
         }
     </style>
 </head>
 <body>
-    <div class="register-container">
-        <h2 class="text-center mb-4">สมัครสมาชิก</h2>
 
-        <?php if ($error): ?>
+<div class="container">
+    <div class="card">
+        <h2 class="card-title text-center mb-4"><i class="fas fa-user-plus me-2"></i>สร้างบัญชี</h2>
+
+        <?php if (!empty($error)): ?>
             <div class="alert alert-danger alert-dismissible fade show" role="alert">
                 <i class="fas fa-exclamation-circle me-2"></i><?= htmlspecialchars($error) ?>
                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
@@ -120,10 +137,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             </div>
         </form>
         <div class="text-center mt-3">
-            <p>มีบัญชีอยู่แล้ว? <a href="login.php">เข้าสู่ระบบ</a></p>
+            <p>มีบัญชีอยู่แล้ว? <a href="login.php">เข้าสู่ระบบที่นี่</a></p>
         </div>
     </div>
+</div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
