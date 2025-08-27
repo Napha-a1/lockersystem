@@ -1,6 +1,6 @@
 <?php
 session_start();
-if (!isset($_SESSION['user_email'])) {
+if (!isset($_SESSION['user_email']) && !isset($_SESSION['admin_username'])) {
   header('Location: login.php');
   exit();
 }
@@ -10,13 +10,11 @@ include 'connect.php'; // เชื่อมต่อฐานข้อมูล
 // ดึงข้อมูลล็อกเกอร์ทั้งหมด
 $lockers = [];
 try {
-    $stmt = $conn->prepare("SELECT id, locker_number, status, user_email, start_time, end_time, price_per_hour, blynk_virtual_pin
-                            FROM lockers ORDER BY locker_number ASC");
+    $stmt = $conn->prepare("SELECT id, locker_number, status, user_email, start_time, end_time, price_per_hour FROM lockers ORDER BY locker_number ASC");
     $stmt->execute();
     $lockers = $stmt->fetchAll(PDO::FETCH_ASSOC); // ดึงข้อมูลทั้งหมดในรูปแบบ associative array
 } catch (PDOException $e) {
     error_log("SQL Error fetching locker status: " . $e->getMessage());
-    // อาจจะแสดงข้อความ error บนหน้าเว็บ หรือ redirect ไปหน้า error
     header('Location: error.php?message=' . urlencode('เกิดข้อผิดพลาดในการดึงข้อมูลสถานะล็อกเกอร์'));
     exit();
 }
@@ -32,109 +30,76 @@ try {
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
     body {
-      background-color: #f8f9fa; /* Light background */
-      font-family: 'Inter', sans-serif;
-      display: flex;
-      flex-direction: column;
-      min-height: 100vh;
+        font-family: 'Inter', sans-serif;
+        background-color: #f8f9fa;
     }
-    .navbar {
-      background-color: #007bff !important; /* Primary Blue */
-      box-shadow: 0 2px 4px rgba(0,0,0,.1);
+    .main-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
     }
-    .navbar-brand {
-      font-weight: bold;
+    .table-container {
+        overflow-x: auto;
     }
-    .container h4 {
-      font-weight: bold;
-      color: #007bff;
-    }
-    .table thead {
-      background-color: #007bff; /* Primary Blue */
-      color: white;
-    }
-    .table th, .table td {
-      vertical-align: middle;
-    }
-    .status-badge {
-        padding: 0.4em 0.8em;
-        border-radius: 0.8rem;
-        font-weight: bold;
-        color: white;
-        display: inline-block; /* เพื่อให้ padding ทำงาน */
-    }
-    .status-available { background-color: #28a745; } /* Green */
-    .status-occupied { background-color: #dc3545; } /* Red */
     .footer {
-      background-color: #343a40; /* Dark Grey */
-      color: white;
-      padding: 1rem 0;
-      position: relative;
-      bottom: 0;
-      width: 100%;
-      margin-top: auto; /* Push footer to the bottom */
+        padding: 1rem;
+        background-color: #e9ecef;
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        text-align: center;
+        color: #6c757d;
     }
+    .table thead th {
+        background-color: #343a40;
+        color: white;
+    }
+    .table tbody tr:nth-child(odd) {
+        background-color: #f2f2f2;
+    }
+    .status-available { color: #28a745; }
+    .status-occupied { color: #dc3545; }
   </style>
 </head>
-<body class="bg-light">
+<body>
 
-<!-- Header -->
-<nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-  <div class="container-fluid container">
-    <a class="navbar-brand" href="index.php">
-      <i class="fas fa-box-open"></i> Locker System
-    </a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="collapse navbar-collapse" id="navbarNav">
-      <ul class="navbar-nav ms-auto">
-        <li class="nav-item">
-          <span class="nav-link text-white">ยินดีต้อนรับ: <?= htmlspecialchars($_SESSION['user_email']) ?></span>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link text-white" href="logout.php">
-            <i class="fas fa-sign-out-alt"></i> ออกจากระบบ
-          </a>
-        </li>
-      </ul>
-    </div>
-  </div>
-</nav>
-
-<div class="container py-5 flex-grow-1">
-    <h4 class="mb-4 text-center"><i class="fas fa-info-circle me-2"></i>สถานะล็อกเกอร์ทั้งหมด</h4>
-
-    <div class="card shadow mb-4">
+<div class="container main-container">
+    <div class="card shadow-sm">
+        <div class="card-header bg-primary text-white text-center">
+            <h3><i class="fas fa-lock me-2"></i>สถานะล็อกเกอร์ทั้งหมด</h3>
+        </div>
         <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-striped table-hover align-middle">
+            <div class="text-end mb-3">
+                <a href="logout.php" class="btn btn-danger"><i class="fas fa-sign-out-alt me-2"></i>ออกจากระบบ</a>
+            </div>
+            <div class="table-container">
+                <table class="table table-bordered table-striped">
                     <thead>
                         <tr>
-                            <th>#ID</th>
-                            <th>หมายเลขล็อกเกอร์</th>
-                            <th>สถานะ</th>
-                            <th>อีเมลผู้จอง</th>
-                            <th>เวลาเริ่ม</th>
-                            <th>เวลาสิ้นสุด</th>
-                            <th>ราคา/ชั่วโมง</th>
+                            <th scope="col">#</th>
+                            <th scope="col">หมายเลขล็อกเกอร์</th>
+                            <th scope="col">สถานะ</th>
+                            <th scope="col">ผู้ใช้ที่จอง</th>
+                            <th scope="col">เวลาเริ่ม</th>
+                            <th scope="col">เวลาสิ้นสุด</th>
+                            <th scope="col">ราคาต่อชั่วโมง (฿)</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (!empty($lockers)): ?>
-                            <?php foreach ($lockers as $row): ?>
+                            <?php foreach ($lockers as $index => $row): ?>
                                 <tr>
-                                    <td><?= htmlspecialchars($row['id']) ?></td>
+                                    <th scope="row"><?= $index + 1 ?></th>
                                     <td><?= htmlspecialchars($row['locker_number']) ?></td>
                                     <td>
-                                        <?php
-                                            $status_class = ($row['status'] === 'available') ? 'status-available' : 'status-occupied';
-                                            $status_text = ($row['status'] === 'available') ? 'ว่าง' : 'ใช้งานอยู่';
-                                        ?>
-                                        <span class="status-badge <?= $status_class ?>"><?= $status_text ?></span>
+                                        <?php if ($row['status'] === 'available'): ?>
+                                            <span class="status-available"><i class="fas fa-check-circle me-1"></i>ว่าง</span>
+                                        <?php else: ?>
+                                            <span class="status-occupied"><i class="fas fa-times-circle me-1"></i>ไม่ว่าง</span>
+                                        <?php endif; ?>
                                     </td>
                                     <td>
-                                        <?php if ($row['status'] === 'occupied'): ?>
+                                        <?php if (!empty($row['user_email'])): ?>
                                             <?= htmlspecialchars($row['user_email']) ?>
                                         <?php else: ?>
                                             -
