@@ -24,11 +24,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if ($row) {
-            // ตรวจสอบรหัสผ่านแบบ Plain text (ตามความต้องการของคุณ)
+            // ตรวจสอบรหัสผ่านแบบ Plain text
             if ($password === $row['password']) {
                 if ($role === "admin") {
                     $_SESSION['admin_username'] = $row['username'];
-                    header('Location: admin_manage_lockers.php'); // แอดมินไปหน้าจัดการล็อกเกอร์
+                    header('Location: admin/booking_stats.php'); // แอดมินไปหน้าแดชบอร์ดแอดมิน
                 } else {
                     $_SESSION['user_email'] = $row['email'];
                     header('Location: index.php'); // ผู้ใช้ทั่วไปไปหน้า index
@@ -42,7 +42,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         }
     } catch (PDOException $e) {
         error_log("Login error: " . $e->getMessage());
-        $error = "เกิดข้อผิดพลาดในการเข้าสู่ระบบ (SQL Error)"; // เพิ่มข้อความบอกว่าเกิดจาก SQL
+        $error = "เกิดข้อผิดพลาดในการเข้าสู่ระบบ (SQL Error)";
     }
 }
 ?>
