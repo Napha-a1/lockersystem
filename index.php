@@ -1,5 +1,4 @@
 <?php
-// index.php
 session_start();
 include 'connect.php'; // เชื่อมต่อฐานข้อมูล PDO สำหรับ PostgreSQL
 
@@ -14,14 +13,29 @@ function getAllLockers($conn) {
     }
 }
 
+// ฟังก์ชันตรวจสอบว่าล็อกเกอร์หมดเวลาการใช้งานแล้วหรือไม่
+function isLockerExpired($endTime) {
+    if (!$endTime) {
+        return false;
+    }
+    $now = new DateTime();
+    $end_time_dt = new DateTime($endTime);
+    return $now > $end_time_dt;
+}
+
 // ดึงข้อมูล Locker ทั้งหมด
 $lockers = getAllLockers($conn);
 $current_user_email = $_SESSION['user_email'] ?? null;
-$has_user_lockers = false; // Flag เพื่อตรวจสอบว่ามีล็อกเกอร์ของผู้ใช้หรือไม่
+$has_user_lockers = false;
 
-// ข้อความ Success/Error จากการจองหรือยกเลิก
-$success = $_GET['success'] ?? '';
-$error = $_GET['error'] ?? '';
+// จัดการข้อความแจ้งเตือน
+$success_message = $_GET['success'] ?? '';
+$error_message = $_GET['error'] ?? '';
+
+// ดึงสถานะการเชื่อมต่อ Blynk (ถ้ามี)
+// Note: This is a placeholder for actual Blynk status check.
+// In a real application, you would need a mechanism to check if the ESP32 is online.
+$blynk_status = true; // Assume online for now
 ?>
 
 <!DOCTYPE html>
@@ -36,128 +50,122 @@ $error = $_GET['error'] ?? '';
         body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
         .card { transition: transform 0.2s; }
         .card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
-        .occupied { border-left: 5px solid #ef4444; }
-        .available { border-left: 5px solid #22c55e; }
-        .btn-cancel {
-            background-color: #dc2626;
-            color: #ffffff;
-            font-weight: bold;
-            padding: 8px 16px;
-            border-radius: 8px;
-            text-decoration: none;
-            transition: background-color 0.2s;
-        }
-        .btn-cancel:hover {
-            background-color: #b91c1c;
-        }
+        .status-available { background-color: #d1fae5; color: #065f46; border-color: #10b981; }
+        .status-occupied { background-color: #fee2e2; color: #991b1b; border-color: #ef4444; }
     </style>
 </head>
 <body class="flex flex-col min-h-screen">
     <!-- Header -->
-    <header class="bg-white shadow p-4">
-        <div class="container mx-auto flex justify-between items-center">
-            <h1 class="text-2xl font-bold text-gray-800">
-                <i class="fas fa-lock text-yellow-500 mr-2"></i>Locker System
-            </h1>
-            <nav>
-                <?php if ($current_user_email): ?>
-                    <span class="text-gray-700 mr-4">
-                        <i class="fas fa-user-circle mr-1"></i>เข้าสู่ระบบโดย: <?= htmlspecialchars($current_user_email) ?>
-                    </span>
-                    <a href="logout.php" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors">
-                        <i class="fas fa-sign-out-alt mr-2"></i>ออกจากระบบ
-                    </a>
-                <?php else: ?>
-                    <a href="login.php" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors">
-                        <i class="fas fa-sign-in-alt mr-2"></i>เข้าสู่ระบบ
-                    </a>
-                <?php endif; ?>
-            </nav>
+    <header class="bg-white shadow-md p-4 flex items-center justify-between">
+        <div class="flex items-center">
+            <i class="fas fa-boxes text-blue-500 text-3xl mr-3"></i>
+            <h1 class="text-2xl font-bold text-gray-800">Locker System</h1>
         </div>
+        <nav>
+            <?php if (isset($_SESSION['user_email'])): ?>
+                <span class="text-gray-600 mr-4 hidden md:inline">ยินดีต้อนรับ, <?= htmlspecialchars($_SESSION['user_email']) ?></span>
+                <a href="book_locker.php" class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors">
+                    <i class="fas fa-plus-circle mr-2"></i>จองล็อกเกอร์
+                </a>
+                <a href="locker_status.php" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors ml-2">
+                    <i class="fas fa-list-ul mr-2"></i>สถานะล็อกเกอร์
+                </a>
+                <a href="logout.php" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors ml-2">
+                    <i class="fas fa-sign-out-alt mr-2"></i>ออกจากระบบ
+                </a>
+            <?php else: ?>
+                <a href="login.php" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors">
+                    <i class="fas fa-sign-in-alt mr-2"></i>เข้าสู่ระบบ
+                </a>
+            <?php endif; ?>
+        </nav>
     </header>
 
     <!-- Main Content -->
-    <main class="container mx-auto p-4 flex-grow">
-        <?php if (!empty($success)): ?>
-            <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative mb-4" role="alert">
-                <i class="fas fa-check-circle mr-2"></i>
-                <span class="block sm:inline"><?= htmlspecialchars($success) ?></span>
+    <main class="container mx-auto mt-8 p-4 flex-grow">
+        <?php if (!empty($success_message)): ?>
+            <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6 rounded-lg shadow-md" role="alert">
+                <p class="font-bold">สำเร็จ!</p>
+                <p><?= htmlspecialchars($success_message) ?></p>
             </div>
         <?php endif; ?>
 
-        <?php if (!empty($error)): ?>
-            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
-                <i class="fas fa-exclamation-circle mr-2"></i>
-                <span class="block sm:inline"><?= htmlspecialchars($error) ?></span>
+        <?php if (!empty($error_message)): ?>
+            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-lg shadow-md" role="alert">
+                <p class="font-bold">เกิดข้อผิดพลาด!</p>
+                <p><?= htmlspecialchars($error_message) ?></p>
             </div>
         <?php endif; ?>
-        
-        <h2 class="text-3xl font-bold text-gray-800 mb-6 text-center">สถานะล็อกเกอร์ทั้งหมด</h2>
-        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            <?php foreach ($lockers as $locker): ?>
-                <?php
-                    $is_available = $locker['status'] === 'available';
-                    $is_occupied_by_user = $locker['status'] === 'occupied' && $locker['user_email'] === $current_user_email;
-                    $is_expired = $locker['end_time'] && (new DateTime($locker['end_time']) < new DateTime());
-                    if ($is_occupied_by_user) {
-                        $has_user_lockers = true;
-                    }
-                ?>
-                <div class="card bg-white rounded-lg shadow-md p-6 border-l-4 <?= $is_available ? 'border-green-500' : 'border-red-500' ?>">
-                    <div class="flex items-center justify-between mb-4">
-                        <span class="text-xl font-semibold text-gray-700">ล็อกเกอร์ #<?= htmlspecialchars($locker['locker_number']) ?></span>
-                        <?php if ($is_available): ?>
-                            <span class="bg-green-500 text-white text-xs font-semibold px-2.5 py-1 rounded-full">ว่าง</span>
-                        <?php else: ?>
-                            <span class="bg-red-500 text-white text-xs font-semibold px-2.5 py-1 rounded-full">ไม่ว่าง</span>
-                        <?php endif; ?>
-                    </div>
-                    
-                    <p class="text-gray-600 mb-2">ราคา: <strong><?= number_format($locker['price_per_hour'], 2) ?> บาท/ชม.</strong></p>
-                    <p class="text-gray-600 mb-2">สถานะ: <strong><?= htmlspecialchars($locker['status']) ?></strong></p>
-                    <?php if (!$is_available): ?>
-                        <p class="text-sm text-gray-500">จองโดย: <?= htmlspecialchars($locker['user_email'] ?? '-') ?></p>
-                        <p class="text-sm text-gray-500">สิ้นสุด: <?= $locker['end_time'] ? date('d/m/Y H:i', strtotime($locker['end_time'])) : '-' ?></p>
-                    <?php endif; ?>
 
-                    <?php if ($current_user_email): ?>
-                        <div class="mt-4 text-center">
-                            <?php if ($is_available): ?>
-                                <a href="book_locker.php?id=<?= htmlspecialchars($locker['id']) ?>" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors">
-                                    <i class="fas fa-calendar-alt mr-2"></i>จองล็อกเกอร์
-                                </a>
-                            <?php elseif ($is_occupied_by_user): ?>
-                                <div class="flex flex-col space-y-2">
-                                    <form action="api_control.php" method="post" class="w-full">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <?php if ($lockers): ?>
+                <?php foreach ($lockers as $locker): ?>
+                    <div class="card bg-white rounded-lg shadow-lg p-6 text-center border-2
+                        <?= $locker['status'] === 'available' ? 'status-available' : 'status-occupied' ?>">
+                        <div class="text-4xl mb-4">
+                            <i class="fas <?= $locker['status'] === 'available' ? 'fa-lock-open' : 'fa-lock' ?>"></i>
+                        </div>
+                        <h3 class="text-xl font-bold mb-2">ล็อกเกอร์หมายเลข <?= htmlspecialchars($locker['locker_number']) ?></h3>
+                        <p class="text-lg font-semibold mb-2">
+                            สถานะ: <span class="font-bold"><?= $locker['status'] === 'available' ? 'ว่าง' : 'ถูกใช้งาน' ?></span>
+                        </p>
+
+                        <!-- แสดงข้อมูลการใช้งานและปุ่มควบคุม -->
+                        <?php
+                            $is_expired = isLockerExpired($locker['end_time']);
+                        ?>
+                        <?php if ($current_user_email && $locker['user_email'] === $current_user_email):
+                            $has_user_lockers = true;
+                            ?>
+                            <hr class="my-4">
+                            <p class="text-sm text-gray-600">คุณใช้งานล็อกเกอร์นี้อยู่</p>
+                            <p class="text-sm text-gray-600 mt-1">เวลาสิ้นสุด: <?= $locker['end_time'] ? date('d/m/Y H:i', strtotime($locker['end_time'])) : '-' ?></p>
+                            
+                            <?php if (!$is_expired && $blynk_status): ?>
+                                <div class="mt-4 flex flex-col space-y-2">
+                                    <form action="control_locker.php" method="POST" class="inline-block" onsubmit="return confirm('คุณต้องการเปิดล็อกเกอร์ใช่หรือไม่?');">
                                         <input type="hidden" name="locker_number" value="<?= htmlspecialchars($locker['locker_number']) ?>">
-                                        <input type="hidden" name="action" value="open">
-                                        <button type="submit" class="w-full bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors flex items-center justify-center mb-2">
+                                        <input type="hidden" name="command" value="open">
+                                        <button type="submit" class="w-full bg-blue-500 text-white font-bold py-2 px-4 rounded-full hover:bg-blue-600 transition-colors flex items-center justify-center">
                                             <i class="fas fa-door-open mr-2"></i> เปิดล็อกเกอร์
                                         </button>
                                     </form>
-                                    <form action="cancel_booking.php" method="post" class="w-full">
-                                        <input type="hidden" name="locker_id" value="<?= htmlspecialchars($locker['id']) ?>">
-                                        <button type="submit" class="w-full bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors flex items-center justify-center">
-                                            <i class="fas fa-times-circle mr-2"></i> ยกเลิกการจอง
+                                    <form action="control_locker.php" method="POST" class="inline-block" onsubmit="return confirm('คุณต้องการปิดล็อกเกอร์ใช่หรือไม่?');">
+                                        <input type="hidden" name="locker_number" value="<?= htmlspecialchars($locker['locker_number']) ?>">
+                                        <input type="hidden" name="command" value="close">
+                                        <button type="submit" class="w-full bg-gray-500 text-white font-bold py-2 px-4 rounded-full hover:bg-gray-600 transition-colors flex items-center justify-center">
+                                            <i class="fas fa-door-closed mr-2"></i> ปิดล็อกเกอร์
                                         </button>
                                     </form>
                                 </div>
+                            <?php elseif ($is_expired): ?>
+                                <div class="mt-4 text-center text-red-600 font-semibold">
+                                    ล็อกเกอร์หมดเวลาแล้ว ไม่สามารถควบคุมได้
+                                </div>
                             <?php else: ?>
                                 <div class="mt-4 text-center text-gray-500">
-                                    ล็อกเกอร์ไม่ว่าง
+                                    ไม่สามารถควบคุมได้ในสถานะนี้
                                 </div>
                             <?php endif; ?>
-                        </div>
-                    <?php endif; ?>
-                </div>
-            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+                <?php if (!$has_user_lockers && $current_user_email): ?>
+                    <p class="col-span-full text-center text-gray-600">คุณยังไม่มีล็อกเกอร์ที่ใช้งานอยู่</p>
+                <?php endif; ?>
+            <?php else: ?>
+                <p class="col-span-full text-center text-gray-600">ไม่มีล็อกเกอร์ในระบบ</p>
+            <?php endif; ?>
         </div>
     </main>
 
     <!-- Footer -->
     <footer class="bg-gray-800 text-white p-4 text-center mt-auto shadow-inner">
-        &copy; <?= date('Y'); ?> Locker System. All rights reserved.
+        &copy; <?php echo date('Y'); ?> Locker System. All rights reserved.
     </footer>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/js/all.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
