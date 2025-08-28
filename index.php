@@ -1,6 +1,6 @@
 <?php
 session_start();
-include 'connect.php'; // เชื่อมต่อฐานข้อมูล
+include 'connect.php'; // เชื่อมต่อฐานข้อมูล (ยังจำเป็นสำหรับล็อกเกอร์อื่นๆ และระบบล็อกอิน/แอดมิน)
 
 $current_user_email = $_SESSION['user_email'] ?? null;
 $is_admin = isset($_SESSION['admin_username']);
@@ -13,17 +13,17 @@ $esp32_ip_locker1 = "10.242.194.185";
 $success_message = $_GET['success'] ?? '';
 $error_message = $_GET['error'] ?? '';
 
-// ดึงข้อมูล Locker ทั้งหมดจากฐานข้อมูล
+// ดึงข้อมูล Locker ทั้งหมดจากฐานข้อมูล (สำหรับแสดง Locker อื่นๆ ที่ไม่ใช่ Locker 1)
 function getAllLockers($conn) {
     try {
-        $stmt = $conn->query("SELECT id, locker_number, status, esp32_ip_address, user_email, start_time, end_time, price_per_hour FROM lockers ORDER BY locker_number ASC");
+        $stmt = $conn->query("SELECT id, locker_number, status, esp32_ip_address, user_email, start_time, end_time, price_per_hour FROM lockers WHERE locker_number != 1 ORDER BY locker_number ASC");
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
-        error_log("Error fetching lockers: " . $e->getMessage());
+        error_log("Error fetching other lockers: " . $e->getMessage());
         return [];
     }
 }
-$all_lockers = getAllLockers($conn);
+$other_lockers = getAllLockers($conn);
 
 ?>
 
@@ -49,7 +49,7 @@ $all_lockers = getAllLockers($conn);
         <div class="container mx-auto flex justify-between items-center">
             <h1 class="text-2xl font-bold text-gray-800">ระบบล็อกเกอร์</h1>
             <nav>
-                <?php if ($current_user_email || $is_admin): // ถ้ามีใครล็อกอินอยู่ ?>
+                <?php if ($current_user_email || $is_admin): ?>
                     <?php if ($is_admin): ?>
                         <span class="text-purple-600 font-semibold mr-4"><i class="fas fa-user-cog mr-1"></i>แอดมิน: <?= htmlspecialchars($_SESSION['admin_username']) ?></span>
                         <a href="admin/booking_stats.php" class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors mr-2">
@@ -94,27 +94,50 @@ $all_lockers = getAllLockers($conn);
             </div>
         <?php endif; ?>
 
+        <!-- Dedicated Container for Locker #1 (10.242.194.185) - ปุ่มหลอกๆ ไม่สน DB -->
+        <div class="flex justify-center mb-10">
+            <div class="card bg-white rounded-lg shadow-lg p-6 w-full max-w-sm border-4 border-blue-500">
+                <div class="flex items-center justify-between mb-4">
+                    <span class="text-xl font-bold text-gray-700">Locker หลัก #1</span>
+                    <span id="locker-1-status-badge" class="px-3 py-1 text-sm font-semibold rounded-full bg-gray-100 text-gray-800">
+                        สถานะ: ไม่ทราบ
+                    </span> 
+                </div>
+                <p class="text-gray-600 mb-2">ควบคุม Locker #1 โดยตรงผ่าน IP: <?= htmlspecialchars($esp32_ip_locker1) ?></p>
+                <p class="text-gray-600 text-sm mb-4">สถานะนี้อัปเดตบนหน้าจอเท่านั้น ไม่บันทึกในฐานข้อมูล</p>
+
+                <div class="flex space-x-2 mt-4">
+                    <button class="direct-ip-control-btn w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors duration-200" 
+                        data-command="on">
+                        <i class="fas fa-door-open mr-2"></i> เปิด Locker
+                    </button>
+                    <button class="direct-ip-control-btn w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors duration-200" 
+                        data-command="off">
+                        <i class="fas fa-door-closed mr-2"></i> ปิด Locker
+                    </button>
+                </div>
+                <div id="status-display-1" class="mt-4 text-center text-gray-600"></div>
+            </div>
+        </div>
+
+        <h3 class="text-2xl font-bold text-center text-gray-800 mb-6">ล็อกเกอร์อื่นๆ ในระบบ</h3>
+
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <?php if (!empty($all_lockers)): ?>
-                <?php foreach ($all_lockers as $locker): ?>
+            <?php if (!empty($other_lockers)): ?>
+                <?php foreach ($other_lockers as $locker): ?>
                     <?php 
-                        $is_locker_1 = ($locker['locker_number'] == 1);
                         $is_occupied = ($locker['status'] === 'occupied');
                         $is_available = ($locker['status'] === 'available');
                         $is_expired = ($locker['end_time'] && strtotime($locker['end_time']) < time());
-                        $is_online_config = !empty($locker['esp32_ip_address']); // ตรวจสอบว่ามี IP Address ใน DB หรือไม่ (สำหรับ Locker อื่นๆ)
-                        // สำหรับ Locker 1, สถานะ "ออนไลน์" จะดูจากว่าเรามี IP Address ที่กำหนดให้มันหรือไม่
-                        $is_locker1_online_actual = !empty($esp32_ip_locker1); 
+                        $is_online_config = !empty($locker['esp32_ip_address']); 
                     ?>
                     <div class="card bg-white rounded-lg shadow-lg p-6 
-                        <?= $is_locker_1 ? 'border-4 border-blue-500' : 
-                          ($is_occupied ? 'border-yellow-500' : 
-                          ($is_available ? 'border-green-500' : 'border-gray-300')) ?>">
+                        <?= $is_occupied ? 'border-yellow-500' : 
+                          ($is_available ? 'border-green-500' : 'border-gray-300') ?>">
                         
                         <div class="flex items-center justify-between mb-4">
                             <span class="text-xl font-bold text-gray-700">ล็อกเกอร์ #<?= htmlspecialchars($locker['locker_number']) ?></span>
-                            <span id="locker-<?= htmlspecialchars($locker['locker_number']) ?>-status-badge" 
-                                class="px-3 py-1 text-sm font-semibold rounded-full 
+                            <span class="px-3 py-1 text-sm font-semibold rounded-full 
                                 <?= $is_occupied ? 'bg-yellow-100 text-yellow-800' : 
                                   ($is_available ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800') ?>">
                                 สถานะ: <?= $is_occupied ? 'ไม่ว่าง' : ($is_available ? 'ว่าง' : 'ไม่ทราบ') ?>
@@ -123,65 +146,33 @@ $all_lockers = getAllLockers($conn);
                         <p class="text-gray-600 mb-2"><strong>ผู้ใช้งาน:</strong> <?= htmlspecialchars($locker['user_email'] ?? '-') ?></p>
                         <p class="text-gray-600 mb-4"><strong>หมดเวลา:</strong> <?= $locker['end_time'] ? date('d/m/Y H:i', strtotime($locker['end_time'])) : '-' ?></p>
 
-                        <?php if ($is_locker_1): // สำหรับ Locker 1 (ปุ่มหลอกๆ ไม่สน DB) ?>
-                            <p class="text-gray-600 text-sm mb-2"><strong>สถานะเชื่อมต่อ:</strong> 
-                                <span class="badge <?= $is_locker1_online_actual ? 'bg-primary' : 'bg-secondary' ?>">
-                                    <i class="fas <?= $is_locker1_online_actual ? 'fa-globe' : 'fa-unlink' ?> mr-1"></i>
-                                    <?= $is_locker1_online_actual ? 'ออนไลน์' : 'ออฟไลน์' ?>
-                                </span>
-                            </p>
-                            <div class="flex space-x-2 mt-4">
-                                <button class="dummy-control-btn w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors duration-200 <?= !$is_locker1_online_actual ? 'opacity-50 cursor-not-allowed' : '' ?>" 
-                                    data-locker-number="<?= htmlspecialchars($locker['locker_number']) ?>" 
-                                    data-command="on" 
-                                    data-esp32-ip="<?= htmlspecialchars($esp32_ip_locker1) ?>"
-                                    <?= !$is_locker1_online_actual ? 'disabled' : '' ?>>
-                                    <i class="fas fa-door-open mr-2"></i> เปิดล็อกเกอร์
-                                </button>
-                                <button class="dummy-control-btn w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors duration-200 <?= !$is_locker1_online_actual ? 'opacity-50 cursor-not-allowed' : '' ?>" 
-                                    data-locker-number="<?= htmlspecialchars($locker['locker_number']) ?>" 
-                                    data-command="off" 
-                                    data-esp32-ip="<?= htmlspecialchars($esp32_ip_locker1) ?>"
-                                    <?= !$is_locker1_online_actual ? 'disabled' : '' ?>>
-                                    <i class="fas fa-door-closed mr-2"></i> ปิดล็อกเกอร์
-                                </button>
+                        <p class="text-gray-600 text-sm mb-2"><strong>สถานะเชื่อมต่อ:</strong> 
+                            <span class="badge <?= $is_online_config ? 'bg-primary' : 'bg-secondary' ?>">
+                                <i class="fas <?= $is_online_config ? 'fa-globe' : 'fa-unlink' ?> mr-1"></i>
+                                <?= $is_online_config ? 'ออนไลน์' : 'ออฟไลน์' ?>
+                            </span>
+                        </p>
+                        <?php if ($is_available && $current_user_email): ?>
+                            <a href="book_locker.php" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors duration-200 mt-4">
+                                <i class="fas fa-calendar-check mr-2"></i> จองล็อกเกอร์
+                            </a>
+                        <?php elseif ($is_occupied && $current_user_email === $locker['user_email'] && !$is_expired): ?>
+                            <div class="mt-4 text-center text-blue-600 font-semibold">
+                                คุณได้จองล็อกเกอร์นี้อยู่
                             </div>
-                        <div class="container">
-                            <h1>Solenoid Control</h1>
-                            <p>Status: <span id="status">OFF</span></p>
-                            <a href="10.242.194.185/on"><button class="button">Turn ON</button></a>
-                            <a href="10.242.194.185/off"><button class="button off">Turn OFF</button></a>
-                        </div>
-                            <div id="status-<?= htmlspecialchars($locker['locker_number']) ?>" class="mt-4 text-center text-gray-600"></div>
-                        <?php else: // สำหรับ Locker อื่นๆ (แสดงสถานะและจอง) ?>
-                            <p class="text-gray-600 text-sm mb-2"><strong>สถานะเชื่อมต่อ:</strong> 
-                                <span class="badge <?= !empty($locker['esp32_ip_address']) ? 'bg-primary' : 'bg-secondary' ?>">
-                                    <i class="fas <?= !empty($locker['esp32_ip_address']) ? 'fa-globe' : 'fa-unlink' ?> mr-1"></i>
-                                    <?= !empty($locker['esp32_ip_address']) ? 'ออนไลน์' : 'ออฟไลน์' ?>
-                                </span>
-                            </p>
-                            <?php if ($is_available && $current_user_email): ?>
-                                <a href="book_locker.php" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors duration-200 mt-4">
-                                    <i class="fas fa-calendar-check mr-2"></i> จองล็อกเกอร์
-                                </a>
-                            <?php elseif ($is_occupied && $current_user_email === $locker['user_email'] && !$is_expired): ?>
-                                <div class="mt-4 text-center text-blue-600 font-semibold">
-                                    คุณได้จองล็อกเกอร์นี้อยู่
-                                </div>
-                            <?php elseif ($is_expired): ?>
-                                <div class="mt-4 text-center text-red-600 font-semibold">
-                                    ล็อกเกอร์หมดเวลาแล้ว
-                                </div>
-                            <?php else: ?>
-                                <div class="mt-4 text-center text-gray-500">
-                                    ไม่สามารถจองได้ในสถานะนี้
-                                </div>
-                            <?php endif; ?>
+                        <?php elseif ($is_expired): ?>
+                            <div class="mt-4 text-center text-red-600 font-semibold">
+                                ล็อกเกอร์หมดเวลาแล้ว
+                            </div>
+                        <?php else: ?>
+                            <div class="mt-4 text-center text-gray-500">
+                                ไม่สามารถจองได้ในสถานะนี้
+                            </div>
                         <?php endif; ?>
                     </div>
                 <?php endforeach; ?>
             <?php else: ?>
-                <p class="col-span-full text-center text-gray-600">ยังไม่มีล็อกเกอร์ในระบบ</p>
+                <p class="col-span-full text-center text-gray-600">ยังไม่มีล็อกเกอร์อื่น ๆ ในระบบ</p>
             <?php endif; ?>
         </div>
     </main>
@@ -193,37 +184,42 @@ $all_lockers = getAllLockers($conn);
 
     <script>
     $(document).ready(function() {
-        // สำหรับปุ่มหลอกๆ ของ Locker #1
-        $('.dummy-control-btn').on('click', function() {
-            var lockerNumber = $(this).data('locker-number');
+        // สำหรับปุ่มควบคุม Locker #1 โดยตรง (ไม่สนฐานข้อมูล)
+        $('.direct-ip-control-btn').on('click', function() {
             var command = $(this).data('command'); // 'on' or 'off'
-            var esp32Ip = $(this).data('esp32-ip'); // ดึง IP จาก data attribute
+            var esp32Ip = '<?= htmlspecialchars($esp32_ip_locker1) ?>'; // IP ที่กำหนดไว้ตายตัว
             
-            var statusDiv = $('#status-' + lockerNumber);
-            var statusBadge = $('#locker-' + lockerNumber + '-status-badge');
+            var statusDiv = $('#status-display-1');
+            var statusBadge = $('#locker-1-status-badge');
             var btn = $(this);
 
             statusDiv.text('กำลังส่งคำสั่ง...');
             btn.prop('disabled', true).addClass('opacity-50'); // ปิดปุ่มชั่วคราว
 
-            // ส่งคำสั่งไปยัง control_locker.php (ซึ่งจะส่งต่อไปยัง ESP32)
-            $.post('control_locker.php', { 
-                locker_number: lockerNumber, 
-                command: command,
-                esp32_ip: esp32Ip 
-            }, function(response) {
-                if (response.status === 'SUCCESS') {
-                    statusDiv.text('คำสั่ง "' + command + '" สำเร็จ!');
-                    // อัปเดตสถานะใน UI ทันที (สำหรับ Locker 1 เท่านั้น)
-                    if(command === 'on') {
-                        statusBadge.removeClass('bg-red-100 text-red-800 bg-gray-100 text-gray-800 bg-green-100 text-green-800').addClass('bg-yellow-100 text-yellow-800').text('สถานะ: เปิดอยู่'); 
+            // ส่งคำสั่ง HTTP GET โดยตรงไปยัง ESP32
+            $.ajax({
+                url: 'http://' + esp32Ip + '/' + command,
+                type: 'GET',
+                timeout: 5000, // กำหนด timeout 5 วินาที
+                success: function(response) {
+                    // สมมติว่า ESP32 ตอบกลับเป็น "OK" เมื่อสำเร็จ
+                    if (response.trim() === 'OK') {
+                        statusDiv.text('คำสั่ง "' + command + '" สำเร็จ!');
+                        if(command === 'on') {
+                            statusBadge.removeClass('bg-red-100 text-red-800 bg-gray-100 text-gray-800').addClass('bg-yellow-100 text-yellow-800').text('สถานะ: เปิดอยู่'); 
+                        } else {
+                            statusBadge.removeClass('bg-yellow-100 text-yellow-800 bg-gray-100 text-gray-800').addClass('bg-green-100 text-green-800').text('สถานะ: ปิดอยู่'); 
+                        }
                     } else {
-                        statusBadge.removeClass('bg-red-100 text-red-800 bg-gray-100 text-gray-800 bg-yellow-100 text-yellow-800').addClass('bg-green-100 text-green-800').text('สถานะ: ปิดอยู่'); 
+                        statusDiv.text('เกิดข้อผิดพลาด: การตอบกลับจาก ESP32 ไม่ถูกต้อง.');
+                        statusBadge.removeClass('bg-yellow-100 text-yellow-800 bg-green-100 text-green-800').addClass('bg-red-100 text-red-800').text('สถานะ: ข้อผิดพลาด');
                     }
-                } else {
-                    statusDiv.text('เกิดข้อผิดพลาด: ' + response.message);
+                },
+                error: function(xhr, status, error) {
+                    statusDiv.text('เกิดข้อผิดพลาดในการเชื่อมต่อกับ ESP32: ' + error);
+                    statusBadge.removeClass('bg-yellow-100 text-yellow-800 bg-green-100 text-green-800').addClass('bg-red-100 text-red-800').text('สถานะ: ออฟไลน์/ข้อผิดพลาด');
                 }
-            }, 'json').always(function() {
+            }).always(function() {
                 btn.prop('disabled', false).removeClass('opacity-50'); // เปิดปุ่มเมื่อเสร็จสิ้น
             });
         });
