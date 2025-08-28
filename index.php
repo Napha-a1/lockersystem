@@ -146,6 +146,12 @@ $all_lockers = getAllLockers($conn);
                                     <i class="fas fa-door-closed mr-2"></i> ปิดล็อกเกอร์
                                 </button>
                             </div>
+                        <div class="container">
+                            <h1>Solenoid Control</h1>
+                            <p>Status: <span id="status">OFF</span></p>
+                            <a href="10.242.194.185/on"><button class="button">Turn ON</button></a>
+                            <a href="10.242.194.185/off"><button class="button off">Turn OFF</button></a>
+                        </div>
                             <div id="status-<?= htmlspecialchars($locker['locker_number']) ?>" class="mt-4 text-center text-gray-600"></div>
                         <?php else: // สำหรับ Locker อื่นๆ (แสดงสถานะและจอง) ?>
                             <p class="text-gray-600 text-sm mb-2"><strong>สถานะเชื่อมต่อ:</strong> 
