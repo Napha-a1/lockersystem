@@ -94,7 +94,7 @@ $other_lockers = getAllLockers($conn);
             </div>
         <?php endif; ?>
 
-        <!-- Dedicated Container for Locker #1 (10.242.194.185) - ปุ่มหลอกๆ ไม่สน DB -->
+        <!-- Dedicated Container for Locker #1 (10.242.194.185) - ปุ่มควบคุมด้วย AJAX ไม่สน DB -->
         <div class="flex justify-center mb-10">
             <div class="card bg-white rounded-lg shadow-lg p-6 w-full max-w-sm border-4 border-blue-500">
                 <div class="flex items-center justify-between mb-4">
@@ -105,19 +105,20 @@ $other_lockers = getAllLockers($conn);
                 </div>
                 <p class="text-gray-600 mb-2">ควบคุม Locker #1 โดยตรงผ่าน IP: <?= htmlspecialchars($esp32_ip_locker1) ?></p>
                 <p class="text-gray-600 text-sm mb-4">
-                    การกดปุ่มเหล่านี้จะนำคุณไปยังหน้าควบคุม ESP32 โดยตรง 
-                    <span class="font-bold text-red-500">(จะเปลี่ยนหน้า)</span>
+                    การกดปุ่มเหล่านี้จะส่งคำสั่งไปยัง ESP32 โดยตรง 
+                    <span class="font-bold text-blue-500">(ไม่เปลี่ยนหน้า)</span>
+                    และอัปเดตสถานะบนหน้าจอเท่านั้น ไม่บันทึกในฐานข้อมูล
                 </p>
 
                 <div class="flex space-x-2 mt-4">
-                    <a href="http://<?= htmlspecialchars($esp32_ip_locker1) ?>/on" target="_blank" 
-                       class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors duration-200">
+                    <button class="direct-ip-ajax-control-btn w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors duration-200" 
+                        data-command="on">
                         <i class="fas fa-door-open mr-2"></i> เปิด Locker
-                    </a>
-                    <a href="http://<?= htmlspecialchars($esp32_ip_locker1) ?>/off" target="_blank" 
-                       class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors duration-200">
+                    </button>
+                    <button class="direct-ip-ajax-control-btn w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors duration-200" 
+                        data-command="off">
                         <i class="fas fa-door-closed mr-2"></i> ปิด Locker
-                    </a>
+                    </button>
                 </div>
                 <div id="status-display-1" class="mt-4 text-center text-gray-600"></div>
             </div>
@@ -186,6 +187,48 @@ $other_lockers = getAllLockers($conn);
         &copy; <?php echo date('Y'); ?> Locker System. All rights reserved.
     </footer>
 
-    <!-- ไม่มี JavaScript สำหรับปุ่มควบคุม Locker #1 ที่นี่แล้ว เพราะใช้ลิงก์ HTML ตรงๆ -->
+    <script>
+    $(document).ready(function() {
+        // สำหรับปุ่มควบคุม Locker #1 โดยตรงด้วย AJAX (ไม่สนฐานข้อมูล)
+        $('.direct-ip-ajax-control-btn').on('click', function() {
+            var command = $(this).data('command'); // 'on' or 'off'
+            var esp32Ip = '<?= htmlspecialchars($esp32_ip_locker1) ?>'; // IP ที่กำหนดไว้ตายตัว
+            
+            var statusDiv = $('#status-display-1');
+            var statusBadge = $('#locker-1-status-badge');
+            var btn = $(this);
+
+            statusDiv.text('กำลังส่งคำสั่ง...');
+            btn.prop('disabled', true).addClass('opacity-50'); // ปิดปุ่มชั่วคราว
+
+            // ส่งคำสั่ง HTTP GET โดยตรงไปยัง ESP32 ด้วย AJAX
+            $.ajax({
+                url: 'http://' + esp32Ip + '/' + command,
+                type: 'GET',
+                timeout: 5000, // กำหนด timeout 5 วินาที
+                success: function(response) {
+                    // สมมติว่า ESP32 ตอบกลับเป็น "OK" เมื่อสำเร็จ
+                    if (response.trim() === 'OK') {
+                        statusDiv.text('คำสั่ง "' + command + '" สำเร็จ!');
+                        if(command === 'on') {
+                            statusBadge.removeClass('bg-red-100 text-red-800 bg-gray-100 text-gray-800').addClass('bg-yellow-100 text-yellow-800').text('สถานะ: เปิดอยู่'); 
+                        } else {
+                            statusBadge.removeClass('bg-yellow-100 text-yellow-800 bg-gray-100 text-gray-800').addClass('bg-green-100 text-green-800').text('สถานะ: ปิดอยู่'); 
+                        }
+                    } else {
+                        statusDiv.text('เกิดข้อผิดพลาด: การตอบกลับจาก ESP32 ไม่ถูกต้อง.');
+                        statusBadge.removeClass('bg-yellow-100 text-yellow-800 bg-green-100 text-green-800').addClass('bg-red-100 text-red-800').text('สถานะ: ข้อผิดพลาด');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    statusDiv.text('เกิดข้อผิดพลาดในการเชื่อมต่อกับ ESP32: ' + error);
+                    statusBadge.removeClass('bg-yellow-100 text-yellow-800 bg-green-100 text-green-800').addClass('bg-red-100 text-red-800').text('สถานะ: ออฟไลน์/ข้อผิดพลาด');
+                }
+            }).always(function() {
+                btn.prop('disabled', false).removeClass('opacity-50'); // เปิดปุ่มเมื่อเสร็จสิ้น
+            });
+        });
+    });
+    </script>
 </body>
 </html>
