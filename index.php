@@ -105,9 +105,9 @@ $other_lockers = getAllLockers($conn);
                 </div>
                 <p class="text-gray-600 mb-2">ควบคุม Locker #1</p>
                 <p class="text-gray-600 text-sm mb-4">
-                    การกดปุ่มเหล่านี้จะส่งคำสั่งไปยัง ESP32 โดยตรง 
-                    <span class="font-bold text-blue-500">(ไม่เปลี่ยนหน้า)</span>
-                    และอัปเดตสถานะบนหน้าจอเท่านั้น ไม่บันทึกในฐานข้อมูล **(ไม่แสดงข้อผิดพลาดบนหน้าจอ)**
+                   
+                    <span class="font-bold text-blue-500"></span>
+                  
                 </p>
 
                 <div class="flex space-x-2 mt-4">
