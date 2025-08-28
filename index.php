@@ -103,11 +103,11 @@ $other_lockers = getAllLockers($conn);
                         สถานะ: ไม่ทราบ
                     </span> 
                 </div>
-                <p class="text-gray-600 mb-2">ควบคุม Locker #1: <?= htmlspecialchars($esp32_ip_locker1) ?></p>
+                <p class="text-gray-600 mb-2">ควบคุม Locker #1</p>
                 <p class="text-gray-600 text-sm mb-4">
-                    
-                    <span class="font-bold text-blue-500">()</span>
-                    
+                    การกดปุ่มเหล่านี้จะส่งคำสั่งไปยัง ESP32 โดยตรง 
+                    <span class="font-bold text-blue-500">(ไม่เปลี่ยนหน้า)</span>
+                    และอัปเดตสถานะบนหน้าจอเท่านั้น ไม่บันทึกในฐานข้อมูล **(ไม่แสดงข้อผิดพลาดบนหน้าจอ)**
                 </p>
 
                 <div class="flex space-x-2 mt-4">
@@ -219,16 +219,14 @@ $other_lockers = getAllLockers($conn);
                         }
                     } else {
                         // หาก ESP32 ตอบกลับแต่ไม่ใช่ "OK"
-                        statusDiv.text('คำสั่ง "' + (command === 'on' ? 'เปิด' : 'ปิด') + '" ไม่สำเร็จ (การตอบกลับไม่ถูกต้อง).');
-                        // ไม่เปลี่ยนสี badge ให้แดง
-                        console.error('ESP32 responded but not "OK":', response); // บันทึกใน console log
+                        statusDiv.text(''); // ล้างข้อความสถานะ
+                        // console.error('ESP32 responded but not "OK":', response); // บันทึกใน console log
                     }
                 },
                 error: function(xhr, status, error) {
                     // หากเกิดข้อผิดพลาดในการเชื่อมต่อ (เช่น ESP32 ออฟไลน์)
-                    statusDiv.text('คำสั่ง "' + (command === 'on' ? 'เปิด' : 'ปิด') + '" ไม่สำเร็จ (ไม่สามารถเชื่อมต่อ ESP32 ได้).');
-                    // ไม่เปลี่ยนสี badge ให้แดง
-                    console.error('Error connecting to ESP32:', error); // บันทึกใน console log
+                    statusDiv.text(''); // ล้างข้อความสถานะ
+                    // console.error('Error connecting to ESP32:', error); // บันทึกใน console log
                 }
             }).always(function() {
                 // ไม่ว่าจะสำเร็จหรือล้มเหลว ให้เปิดปุ่มและลบ opacity
