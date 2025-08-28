@@ -94,20 +94,20 @@ $other_lockers = getAllLockers($conn);
             </div>
         <?php endif; ?>
 
-        <!-- Dedicated Container for Locker #1 (10.242.194.185) - ปุ่มควบคุมด้วย AJAX ไม่สน DB -->
+        <!-- Dedicated Container for Locker #1 (10.242.194.185) - ปุ่มควบคุมด้วย AJAX ไม่สน DB และไม่แสดง error -->
         <div class="flex justify-center mb-10">
             <div class="card bg-white rounded-lg shadow-lg p-6 w-full max-w-sm border-4 border-blue-500">
                 <div class="flex items-center justify-between mb-4">
                     <span class="text-xl font-bold text-gray-700">Locker หลัก #1</span>
-                    <span id="locker-1-status-badge" class="px-3 py-1 text-sm font-semibold rounded-full bg-green-100 text-green-800">
-                        สถานะ: ออนไลน์
+                    <span id="locker-1-status-badge" class="px-3 py-1 text-sm font-semibold rounded-full bg-gray-100 text-gray-800">
+                        สถานะ: ไม่ทราบ
                     </span> 
                 </div>
                 <p class="text-gray-600 mb-2">ควบคุม Locker #1 โดยตรงผ่าน IP: <?= htmlspecialchars($esp32_ip_locker1) ?></p>
                 <p class="text-gray-600 text-sm mb-4">
                     การกดปุ่มเหล่านี้จะส่งคำสั่งไปยัง ESP32 โดยตรง 
                     <span class="font-bold text-blue-500">(ไม่เปลี่ยนหน้า)</span>
-                    และอัปเดตสถานะบนหน้าจอเท่านั้น ไม่บันทึกในฐานข้อมูล
+                    และอัปเดตสถานะบนหน้าจอเท่านั้น ไม่บันทึกในฐานข้อมูล **(ไม่แสดงข้อผิดพลาดบนหน้าจอ)**
                 </p>
 
                 <div class="flex space-x-2 mt-4">
@@ -120,6 +120,7 @@ $other_lockers = getAllLockers($conn);
                         <i class="fas fa-door-closed mr-2"></i> ปิด Locker
                     </button>
                 </div>
+                <!-- ส่วนนี้จะแสดงข้อความสถานะชั่วคราวขณะส่งคำสั่งเท่านั้น ไม่ใช่ข้อผิดพลาดถาวร -->
                 <div id="status-display-1" class="mt-4 text-center text-gray-600"></div>
             </div>
         </div>
@@ -189,7 +190,7 @@ $other_lockers = getAllLockers($conn);
 
     <script>
     $(document).ready(function() {
-        // สำหรับปุ่มควบคุม Locker #1 โดยตรงด้วย AJAX (ไม่สนฐานข้อมูล)
+        // สำหรับปุ่มควบคุม Locker #1 โดยตรงด้วย AJAX (ไม่สนฐานข้อมูลและไม่แสดง error)
         $('.direct-ip-ajax-control-btn').on('click', function() {
             var command = $(this).data('command'); // 'on' or 'off'
             var esp32Ip = '<?= htmlspecialchars($esp32_ip_locker1) ?>'; // IP ที่กำหนดไว้ตายตัว
@@ -198,6 +199,7 @@ $other_lockers = getAllLockers($conn);
             var statusBadge = $('#locker-1-status-badge');
             var btn = $(this);
 
+            // แสดงสถานะ "กำลังส่งคำสั่ง..." ชั่วคราว
             statusDiv.text('กำลังส่งคำสั่ง...');
             btn.prop('disabled', true).addClass('opacity-50'); // ปิดปุ่มชั่วคราว
 
@@ -209,23 +211,28 @@ $other_lockers = getAllLockers($conn);
                 success: function(response) {
                     // สมมติว่า ESP32 ตอบกลับเป็น "OK" เมื่อสำเร็จ
                     if (response.trim() === 'OK') {
-                        statusDiv.text('คำสั่ง "' + command + '" สำเร็จ!');
+                        statusDiv.text('คำสั่ง "' + (command === 'on' ? 'เปิด' : 'ปิด') + '" สำเร็จ!');
                         if(command === 'on') {
                             statusBadge.removeClass('bg-red-100 text-red-800 bg-gray-100 text-gray-800').addClass('bg-yellow-100 text-yellow-800').text('สถานะ: เปิดอยู่'); 
                         } else {
                             statusBadge.removeClass('bg-yellow-100 text-yellow-800 bg-gray-100 text-gray-800').addClass('bg-green-100 text-green-800').text('สถานะ: ปิดอยู่'); 
                         }
                     } else {
-                        statusDiv.text('เกิดข้อผิดพลาด: การตอบกลับจาก ESP32 ไม่ถูกต้อง.');
-                        statusBadge.removeClass('bg-yellow-100 text-yellow-800 bg-green-100 text-green-800').addClass('bg-red-100 text-red-800').text('สถานะ: ข้อผิดพลาด');
+                        // หาก ESP32 ตอบกลับแต่ไม่ใช่ "OK"
+                        statusDiv.text('คำสั่ง "' + (command === 'on' ? 'เปิด' : 'ปิด') + '" ไม่สำเร็จ (การตอบกลับไม่ถูกต้อง).');
+                        // ไม่เปลี่ยนสี badge ให้แดง
+                        console.error('ESP32 responded but not "OK":', response); // บันทึกใน console log
                     }
                 },
                 error: function(xhr, status, error) {
-                    statusDiv.text('เกิดข้อผิดพลาดในการเชื่อมต่อกับ ESP32: ' + error);
-                    statusBadge.removeClass('bg-yellow-100 text-yellow-800 bg-green-100 text-green-800').addClass('bg-red-100 text-red-800').text('สถานะ: ออฟไลน์/ข้อผิดพลาด');
+                    // หากเกิดข้อผิดพลาดในการเชื่อมต่อ (เช่น ESP32 ออฟไลน์)
+                    statusDiv.text('คำสั่ง "' + (command === 'on' ? 'เปิด' : 'ปิด') + '" ไม่สำเร็จ (ไม่สามารถเชื่อมต่อ ESP32 ได้).');
+                    // ไม่เปลี่ยนสี badge ให้แดง
+                    console.error('Error connecting to ESP32:', error); // บันทึกใน console log
                 }
             }).always(function() {
-                btn.prop('disabled', false).removeClass('opacity-50'); // เปิดปุ่มเมื่อเสร็จสิ้น
+                // ไม่ว่าจะสำเร็จหรือล้มเหลว ให้เปิดปุ่มและลบ opacity
+                btn.prop('disabled', false).removeClass('opacity-50'); 
             });
         });
     });
